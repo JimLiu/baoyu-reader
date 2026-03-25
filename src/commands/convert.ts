@@ -15,6 +15,7 @@ import type {
   Adapter,
   AdapterContext,
   AdapterLoginInfo,
+  LoginState,
   WaitForInteractionRequest,
 } from "../adapters/types";
 
@@ -44,22 +45,37 @@ interface RuntimeResources {
   interactive: boolean;
 }
 
+interface ForceWaitSnapshot {
+  url: string;
+  hasGate: boolean;
+  loginState: LoginState | "unavailable";
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForUserSignal(prompt: string): Promise<void> {
-  console.error(`[info] ${prompt}`);
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
-  await new Promise<void>((resolve) => {
-    rl.once("line", () => {
-      rl.close();
-      resolve();
-    });
-  });
+export function shouldAutoContinueForceWait(
+  initial: ForceWaitSnapshot,
+  current: ForceWaitSnapshot,
+): boolean {
+  if (initial.hasGate && !current.hasGate) {
+    return true;
+  }
+
+  if (initial.loginState === "logged_out" && current.loginState !== "logged_out") {
+    return true;
+  }
+
+  if (initial.loginState !== "logged_in" && current.loginState === "logged_in") {
+    return true;
+  }
+
+  if (current.url !== initial.url && !current.hasGate && current.loginState !== "logged_out") {
+    return true;
+  }
+
+  return false;
 }
 
 async function writeOutput(path: string, markdown: string): Promise<void> {
@@ -147,6 +163,81 @@ async function reopenInteractiveRuntime(
   return openRuntime(options, true, debugEnabled);
 }
 
+async function captureForceWaitSnapshot(
+  adapter: Adapter,
+  context: AdapterContext,
+): Promise<ForceWaitSnapshot> {
+  const [gate, url, login] = await Promise.all([
+    detectInteractionGate(context.browser).catch(() => null),
+    context.browser.getURL().catch(() => context.input.url.toString()),
+    adapter.checkLogin?.(context).catch(() => ({
+      provider: adapter.name,
+      state: "unknown" as const,
+    })),
+  ]);
+
+  return {
+    url,
+    hasGate: Boolean(gate),
+    loginState: login?.state ?? "unavailable",
+  };
+}
+
+async function waitForForceResume(
+  adapter: Adapter,
+  context: AdapterContext,
+  options: ConvertCommandOptions,
+): Promise<void> {
+  if (context.interactive) {
+    await context.browser.bringToFront().catch(() => {});
+  }
+
+  const prompt =
+    "Chrome is ready. Complete any manual login or verification. Extraction will continue automatically after it detects progress, or press Enter to continue immediately.";
+  context.log.info(prompt);
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+
+  let manualContinue = false;
+  let closed = false;
+  const closeReadline = (): void => {
+    if (!closed) {
+      closed = true;
+      rl.close();
+    }
+  };
+
+  rl.once("line", () => {
+    manualContinue = true;
+    closeReadline();
+  });
+
+  const initial = await captureForceWaitSnapshot(adapter, context);
+  const startedAt = Date.now();
+
+  try {
+    while (Date.now() - startedAt < options.interactionTimeoutMs) {
+      if (manualContinue) {
+        return;
+      }
+
+      const current = await captureForceWaitSnapshot(adapter, context);
+      if (shouldAutoContinueForceWait(initial, current)) {
+        return;
+      }
+
+      await sleep(options.interactionPollIntervalMs);
+    }
+  } finally {
+    closeReadline();
+  }
+
+  throw new Error("Timed out waiting for force-mode interaction to complete");
+}
+
 async function waitForInteraction(
   adapter: Adapter,
   context: AdapterContext,
@@ -227,9 +318,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
 
     if (options.waitMode === "force") {
       await context.browser.goto(url.toString(), options.timeoutMs).catch(() => {});
-      await waitForUserSignal(
-        "Chrome is ready. Complete any manual login or verification, then press Enter to continue extraction.",
-      );
+      await waitForForceResume(adapter, context, options);
     }
 
     let result = await adapter.process(context);
