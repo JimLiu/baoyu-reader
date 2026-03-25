@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { connectChrome, type ChromeConnection } from "../browser/chrome-launcher";
 import { CdpClient } from "../browser/cdp-client";
 import { detectInteractionGate } from "../browser/interaction-gates";
@@ -17,6 +18,8 @@ import type {
   WaitForInteractionRequest,
 } from "../adapters/types";
 
+export type WaitMode = "none" | "interaction" | "force";
+
 export interface ConvertCommandOptions {
   url?: string;
   output?: string;
@@ -27,7 +30,7 @@ export interface ConvertCommandOptions {
   browserPath?: string;
   chromeProfileDir?: string;
   headless: boolean;
-  waitForInteraction: boolean;
+  waitMode: WaitMode;
   interactionTimeoutMs: number;
   interactionPollIntervalMs: number;
   timeoutMs: number;
@@ -43,6 +46,20 @@ interface RuntimeResources {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForUserSignal(prompt: string): Promise<void> {
+  console.error(`[info] ${prompt}`);
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  await new Promise<void>((resolve) => {
+    rl.once("line", () => {
+      rl.close();
+      resolve();
+    });
+  });
 }
 
 async function writeOutput(path: string, markdown: string): Promise<void> {
@@ -193,7 +210,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
   }
 
   const url = normalizeUrl(options.url);
-  let runtime = await openRuntime(options, options.waitForInteraction, Boolean(options.debugDir));
+  let runtime = await openRuntime(options, options.waitMode !== "none", Boolean(options.debugDir));
   const logger = createLogger(Boolean(options.debugDir));
 
   try {
@@ -207,6 +224,13 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
       timeoutMs: options.timeoutMs,
       interactive: runtime.interactive,
     };
+
+    if (options.waitMode === "force") {
+      await context.browser.goto(url.toString(), options.timeoutMs).catch(() => {});
+      await waitForUserSignal(
+        "Chrome is ready. Complete any manual login or verification, then press Enter to continue extraction.",
+      );
+    }
 
     let result = await adapter.process(context);
 
@@ -222,7 +246,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
     }
 
     while (result.status === "needs_interaction") {
-      if (!options.waitForInteraction) {
+      if (options.waitMode === "none") {
         if (options.json) {
           printJson({
             adapter: adapter.name,
@@ -233,7 +257,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
           return;
         }
 
-        throw new Error(`${adapter.name} requires manual interaction. Re-run with --wait-for-interaction to continue after completing it.`);
+        throw new Error(`${adapter.name} requires manual interaction. Re-run with --wait-for interaction to continue after completing it.`);
       }
 
       if (result.interaction.requiresVisibleBrowser !== false) {

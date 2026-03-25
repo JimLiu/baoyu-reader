@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { runConvertCommand, type ConvertCommandOptions } from "./commands/convert";
+import { runConvertCommand, type ConvertCommandOptions, type WaitMode } from "./commands/convert";
 
 const HELP_TEXT = `
 baoyu-markdown - Convert a URL into Markdown with Chrome CDP
@@ -19,9 +19,12 @@ Options:
                         Chrome user data dir. Defaults to BAOYU_CHROME_PROFILE_DIR
                         or baoyu-skills/chrome-profile.
   --headless            Launch a temporary headless Chrome if needed
+  --wait-for <mode>     Wait mode: interaction | force
+                        interaction: start visible Chrome and auto-wait only when login or verification is required
+                        force: start visible Chrome and always wait for Enter before extraction
   --wait-for-interaction
-                        Start in a visible Chrome window and wait for manual login or verification if needed
-  --wait-for-login      Alias for --wait-for-interaction
+                        Alias for --wait-for interaction
+  --wait-for-login      Alias for --wait-for interaction
   --interaction-timeout <ms>
                         How long to wait for manual interaction before failing (default: 600000)
   --interaction-poll-interval <ms>
@@ -38,11 +41,22 @@ interface CliOptions extends ConvertCommandOptions {
   help: boolean;
 }
 
-function parseArgs(argv: string[]): CliOptions {
+function normalizeWaitMode(raw: string): WaitMode {
+  const value = raw.toLowerCase();
+  if (value === "interaction" || value === "auto") {
+    return "interaction";
+  }
+  if (value === "force" || value === "manual" || value === "always") {
+    return "force";
+  }
+  throw new Error(`Invalid wait mode: ${raw}. Expected interaction or force.`);
+}
+
+export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     json: false,
     headless: false,
-    waitForInteraction: false,
+    waitMode: "none",
     interactionTimeoutMs: 600_000,
     interactionPollIntervalMs: 1_500,
     timeoutMs: 30_000,
@@ -65,8 +79,17 @@ function parseArgs(argv: string[]): CliOptions {
       options.headless = true;
       continue;
     }
+    if (value === "--wait-for") {
+      const mode = args[index + 1];
+      if (!mode) {
+        throw new Error("--wait-for requires a mode");
+      }
+      options.waitMode = normalizeWaitMode(mode);
+      index += 1;
+      continue;
+    }
     if (value === "--wait-for-interaction" || value === "--wait-for-login") {
-      options.waitForInteraction = true;
+      options.waitMode = "interaction";
       continue;
     }
     if (value === "--output") {
@@ -155,4 +178,6 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+if (import.meta.main) {
+  void main();
+}
