@@ -93,7 +93,10 @@ export async function connectChrome(options: ChromeConnectOptions): Promise<Chro
       "--disable-default-apps",
       "--disable-popup-blocking",
       "--disable-sync",
+      "--no-first-run",
+      "--no-default-browser-check",
       "--remote-allow-origins=*",
+      ...(!options.headless ? ["--no-startup-window"] : []),
       ...(options.headless ? ["--headless=new"] : []),
     ],
   });

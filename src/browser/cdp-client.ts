@@ -146,10 +146,37 @@ export class CdpClient {
     return this.sendCommand<T>(method, params, sessionId);
   }
 
+  private async createPageTarget(initialUrl: string): Promise<{ targetId: string }> {
+    const attempts: JsonObject[] = [
+      {
+        url: initialUrl,
+        hidden: true,
+      },
+      {
+        url: initialUrl,
+        background: true,
+        focus: false,
+      },
+      {
+        url: initialUrl,
+      },
+    ];
+
+    let lastError: unknown;
+
+    for (const params of attempts) {
+      try {
+        return await this.sendBrowserCommand<{ targetId: string }>("Target.createTarget", params);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Target.createTarget failed");
+  }
+
   async createPageSession(initialUrl = "about:blank"): Promise<TargetSession> {
-    const created = await this.sendBrowserCommand<{ targetId: string }>("Target.createTarget", {
-      url: initialUrl,
-    });
+    const created = await this.createPageTarget(initialUrl);
     const attached = await this.sendBrowserCommand<{ sessionId: string }>("Target.attachToTarget", {
       targetId: created.targetId,
       flatten: true,
@@ -198,4 +225,3 @@ export async function evaluateRuntime<T>(session: TargetSession, expression: str
 
   return (response.result?.value as T | undefined) ?? (undefined as T);
 }
-
