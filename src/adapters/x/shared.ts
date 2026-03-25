@@ -34,39 +34,61 @@ export function walk(value: unknown, visitor: (node: unknown) => boolean | void)
   return false;
 }
 
-export function findTweetNode(payload: unknown, statusId: string): JsonObject | null {
-  let firstMatch: JsonObject | null = null;
-  let exactMatch: JsonObject | null = null;
+function hasTweetText(node: JsonObject): boolean {
+  const legacy = isRecord(node.legacy) ? node.legacy : emptyObject();
+  return (
+    typeof legacy.full_text === "string" ||
+    (isRecord(node.note_tweet) &&
+      isRecord(node.note_tweet.note_tweet_results) &&
+      isRecord(node.note_tweet.note_tweet_results.result) &&
+      typeof node.note_tweet.note_tweet_results.result.text === "string")
+  );
+}
+
+export function findTweetNodeById(payload: unknown, tweetId: string): JsonObject | null {
+  let match: JsonObject | null = null;
 
   walk(payload, (node) => {
     if (!isRecord(node) || typeof node.rest_id !== "string" || !isRecord(node.legacy)) {
       return false;
     }
 
-    const hasText =
-      typeof node.legacy.full_text === "string" ||
-      (isRecord(node.note_tweet) &&
-        isRecord(node.note_tweet.note_tweet_results) &&
-        isRecord(node.note_tweet.note_tweet_results.result) &&
-        typeof node.note_tweet.note_tweet_results.result.text === "string");
-
-    if (!hasText) {
+    if (!hasTweetText(node)) {
       return false;
     }
 
-    if (!firstMatch) {
-      firstMatch = node;
-    }
-
-    if (node.rest_id === statusId) {
-      exactMatch = node;
+    if (node.rest_id === tweetId) {
+      match = node;
       return true;
     }
 
     return false;
   });
 
-  return exactMatch ?? firstMatch;
+  return match;
+}
+
+export function findTweetNode(payload: unknown, statusId: string): JsonObject | null {
+  let firstMatch: JsonObject | null = null;
+  const exactMatch = findTweetNodeById(payload, statusId);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  walk(payload, (node) => {
+    if (!isRecord(node) || typeof node.rest_id !== "string" || !isRecord(node.legacy)) {
+      return false;
+    }
+    if (!hasTweetText(node)) {
+      return false;
+    }
+    if (!firstMatch) {
+      firstMatch = node;
+    }
+    return false;
+  });
+
+  return firstMatch;
 }
 
 export function getLegacy(tweet: JsonObject): JsonObject {

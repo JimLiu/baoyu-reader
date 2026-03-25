@@ -59,6 +59,7 @@ function renderFrontmatter(document: ExtractedDocument): string {
     "authorName",
     "authorUsername",
     "authorUrl",
+    "coverImage",
     "siteName",
     "publishedAt",
     "summary",

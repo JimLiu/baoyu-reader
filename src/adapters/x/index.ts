@@ -66,7 +66,7 @@ export const xAdapter: Adapter = {
     }
 
     for (const payload of payloads) {
-      const articleDocument = extractArticleDocumentFromPayload(payload, statusId, pageUrl);
+      const articleDocument = extractArticleDocumentFromPayload(payload, statusId, pageUrl, payloads);
       if (articleDocument) {
         return articleDocument;
       }
@@ -87,4 +87,3 @@ export const xAdapter: Adapter = {
     return null;
   },
 };
-

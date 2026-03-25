@@ -1,5 +1,5 @@
 import type { ExtractedDocument } from "../../extract/document";
-import { getTweetAuthorMetadata, getTweetText, findTweetNode, formatTweetAuthor, getUser, isRecord, normalizeTitle, toXTweet } from "./shared";
+import { findTweetNode, findTweetNodeById, formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, getTweetText, getUser, isRecord, normalizeTitle, toXTweet } from "./shared";
 import type { JsonObject } from "./types";
 
 function normalizeEntityMap(entityMap: unknown): Map<string, JsonObject> {
@@ -62,7 +62,171 @@ function getEntityMarkdown(entityMap: Map<string, JsonObject>, entityKey: unknow
   return markdown || null;
 }
 
-function renderAtomicBlock(block: JsonObject, entityMap: Map<string, JsonObject>): string | null {
+function getLinkUrl(entityMap: Map<string, JsonObject>, entityKey: unknown): string | null {
+  const key =
+    typeof entityKey === "string" || typeof entityKey === "number"
+      ? String(entityKey)
+      : undefined;
+  if (!key) {
+    return null;
+  }
+
+  const entity = entityMap.get(key);
+  if (!entity || entity.type !== "LINK") {
+    return null;
+  }
+
+  const data = isRecord(entity.data) ? entity.data : {};
+  if (typeof data.url !== "string") {
+    return null;
+  }
+
+  return data.url.trim() || null;
+}
+
+function getTweetId(entityMap: Map<string, JsonObject>, entityKey: unknown): string | null {
+  const key =
+    typeof entityKey === "string" || typeof entityKey === "number"
+      ? String(entityKey)
+      : undefined;
+  if (!key) {
+    return null;
+  }
+
+  const entity = entityMap.get(key);
+  if (!entity || entity.type !== "TWEET") {
+    return null;
+  }
+
+  const data = isRecord(entity.data) ? entity.data : {};
+  if (typeof data.tweetId !== "string") {
+    return null;
+  }
+
+  return data.tweetId;
+}
+
+function buildMediaUrlMap(articleResult: JsonObject): Map<string, string> {
+  const mediaMap = new Map<string, string>();
+  const mediaEntities = Array.isArray(articleResult.media_entities) ? articleResult.media_entities : [];
+
+  for (const entity of mediaEntities) {
+    if (!isRecord(entity) || typeof entity.media_id !== "string" || !isRecord(entity.media_info)) {
+      continue;
+    }
+
+    const mediaInfo = entity.media_info;
+    const url =
+      (typeof mediaInfo.original_img_url === "string" && mediaInfo.original_img_url) ||
+      (typeof mediaInfo.url === "string" && mediaInfo.url) ||
+      "";
+    if (url) {
+      mediaMap.set(entity.media_id, url);
+    }
+  }
+
+  const coverMedia = isRecord(articleResult.cover_media) ? articleResult.cover_media : null;
+  if (coverMedia && typeof coverMedia.media_id === "string" && isRecord(coverMedia.media_info)) {
+    const url =
+      (typeof coverMedia.media_info.original_img_url === "string" && coverMedia.media_info.original_img_url) ||
+      (typeof coverMedia.media_info.url === "string" && coverMedia.media_info.url) ||
+      "";
+    if (url) {
+      mediaMap.set(coverMedia.media_id, url);
+    }
+  }
+
+  return mediaMap;
+}
+
+function getMediaMarkdown(entityMap: Map<string, JsonObject>, entityKey: unknown, mediaMap: Map<string, string>): string[] {
+  const key =
+    typeof entityKey === "string" || typeof entityKey === "number"
+      ? String(entityKey)
+      : undefined;
+  if (!key) {
+    return [];
+  }
+
+  const entity = entityMap.get(key);
+  if (!entity || entity.type !== "MEDIA") {
+    return [];
+  }
+
+  const data = isRecord(entity.data) ? entity.data : {};
+  const mediaItems = Array.isArray(data.mediaItems) ? data.mediaItems : [];
+  const urls: string[] = [];
+
+  for (const item of mediaItems) {
+    if (!isRecord(item) || typeof item.mediaId !== "string") {
+      continue;
+    }
+    const url = mediaMap.get(item.mediaId);
+    if (url && !urls.includes(url)) {
+      urls.push(url);
+    }
+  }
+
+  return urls.map((url) => `![](${url})`);
+}
+
+function resolveTweetMarkdown(payloads: unknown[], tweetId: string, pageUrl: string): string | null {
+  for (const payload of payloads) {
+    const tweet = findTweetNodeById(payload, tweetId);
+    if (!tweet) {
+      continue;
+    }
+
+    const xTweet = toXTweet(tweet, pageUrl);
+    const author = formatTweetAuthor(xTweet) ?? xTweet.url;
+    const lines = [`> ${author}`, ...xTweet.text.split("\n").map((line) => `> ${line}`)];
+
+    const media = formatMediaList(xTweet.media).map((line) =>
+      line.startsWith("photo: ") ? `> ![](${line.slice("photo: ".length)})` : `> - ${line}`,
+    );
+
+    const parts = [lines.join("\n")];
+    if (media.length > 0) {
+      parts.push([">", ...media].join("\n"));
+    }
+    parts.push(`> ${xTweet.url}`);
+
+    return parts.join("\n").trim();
+  }
+
+  return `> Embedded tweet: https://x.com/i/status/${tweetId}`;
+}
+
+function replaceLinkEntities(text: string, block: JsonObject, entityMap: Map<string, JsonObject>): string {
+  const entityRanges = Array.isArray(block.entityRanges) ? block.entityRanges : [];
+  const replacements = entityRanges
+    .filter((range): range is JsonObject => isRecord(range))
+    .map((range) => {
+      const offset = typeof range.offset === "number" ? range.offset : -1;
+      const length = typeof range.length === "number" ? range.length : -1;
+      const url = getLinkUrl(entityMap, range.key);
+      return { offset, length, url };
+    })
+    .filter((range) => range.offset >= 0 && range.length > 0 && range.url)
+    .sort((left, right) => right.offset - left.offset);
+
+  let next = text;
+  for (const replacement of replacements) {
+    next =
+      next.slice(0, replacement.offset) +
+      replacement.url +
+      next.slice(replacement.offset + replacement.length);
+  }
+  return next;
+}
+
+function renderAtomicBlock(
+  block: JsonObject,
+  entityMap: Map<string, JsonObject>,
+  mediaMap: Map<string, string>,
+  payloads: unknown[],
+  pageUrl: string,
+): string | null {
   const entityRanges = Array.isArray(block.entityRanges) ? block.entityRanges : [];
   const parts: string[] = [];
 
@@ -74,6 +238,21 @@ function renderAtomicBlock(block: JsonObject, entityMap: Map<string, JsonObject>
     const markdown = getEntityMarkdown(entityMap, range.key);
     if (markdown) {
       parts.push(markdown);
+      continue;
+    }
+
+    const mediaMarkdown = getMediaMarkdown(entityMap, range.key, mediaMap);
+    if (mediaMarkdown.length > 0) {
+      parts.push(mediaMarkdown.join("\n\n"));
+      continue;
+    }
+
+    const tweetId = getTweetId(entityMap, range.key);
+    if (tweetId) {
+      const tweetMarkdown = resolveTweetMarkdown(payloads, tweetId, pageUrl);
+      if (tweetMarkdown) {
+        parts.push(tweetMarkdown);
+      }
     }
   }
 
@@ -84,7 +263,13 @@ function renderAtomicBlock(block: JsonObject, entityMap: Map<string, JsonObject>
   return parts.join("\n\n");
 }
 
-function renderArticleBlocks(blocks: unknown[], entityMap: Map<string, JsonObject>): string {
+function renderArticleBlocks(
+  blocks: unknown[],
+  entityMap: Map<string, JsonObject>,
+  mediaMap: Map<string, string>,
+  payloads: unknown[],
+  pageUrl: string,
+): string {
   const parts: string[] = [];
   let orderedCounter = 0;
 
@@ -94,7 +279,8 @@ function renderArticleBlocks(blocks: unknown[], entityMap: Map<string, JsonObjec
     }
 
     const blockType = typeof block.type === "string" ? block.type : "unstyled";
-    const text = typeof block.text === "string" ? block.text.trim() : "";
+    const rawText = typeof block.text === "string" ? block.text : "";
+    const text = replaceLinkEntities(rawText, block, entityMap).trim();
     if (!text && blockType !== "atomic") {
       continue;
     }
@@ -127,7 +313,7 @@ function renderArticleBlocks(blocks: unknown[], entityMap: Map<string, JsonObjec
         parts.push(`\`\`\`\n${text}\n\`\`\``);
         break;
       case "atomic": {
-        const markdown = renderAtomicBlock(block, entityMap);
+        const markdown = renderAtomicBlock(block, entityMap, mediaMap, payloads, pageUrl);
         if (markdown) {
           parts.push(markdown);
         }
@@ -167,6 +353,7 @@ export function extractArticleDocumentFromPayload(
   payload: unknown,
   statusId: string,
   pageUrl: string,
+  payloads: unknown[] = [payload],
 ): ExtractedDocument | null {
   const tweet = findTweetNode(payload, statusId);
   if (!tweet) {
@@ -182,7 +369,8 @@ export function extractArticleDocumentFromPayload(
   const contentState = isRecord(articleResult.content_state) ? articleResult.content_state : {};
   const blocks = Array.isArray(contentState.blocks) ? contentState.blocks : [];
   const entityMap = normalizeEntityMap(contentState.entityMap);
-  const richMarkdown = renderArticleBlocks(blocks, entityMap);
+  const mediaMap = buildMediaUrlMap(articleResult);
+  const richMarkdown = renderArticleBlocks(blocks, entityMap, mediaMap, payloads, pageUrl);
   const plainText = typeof articleResult.plain_text === "string" ? articleResult.plain_text.trim() : "";
   const markdown = richMarkdown || plainText || getTweetText(tweet);
   if (!markdown) {
@@ -191,6 +379,12 @@ export function extractArticleDocumentFromPayload(
 
   const xTweet = toXTweet(tweet, pageUrl);
   const user = getUser(tweet);
+  const coverMedia = isRecord(articleResult.cover_media) ? articleResult.cover_media : null;
+  const coverMediaInfo = coverMedia && isRecord(coverMedia.media_info) ? coverMedia.media_info : null;
+  const coverImage =
+    (coverMediaInfo && typeof coverMediaInfo.original_img_url === "string" && coverMediaInfo.original_img_url) ||
+    (coverMediaInfo && typeof coverMediaInfo.url === "string" && coverMediaInfo.url) ||
+    undefined;
 
   return {
     url: pageUrl,
@@ -204,6 +398,7 @@ export function extractArticleDocumentFromPayload(
     metadata: {
       kind: "x/article",
       tweetId: xTweet.id,
+      coverImage,
       authorName: xTweet.authorName ?? user.name,
       authorUsername: xTweet.author ?? user.screenName,
       authorUrl: (xTweet.author ?? user.screenName) ? `https://x.com/${xTweet.author ?? user.screenName}` : undefined,
