@@ -206,9 +206,19 @@ export class CdpClient {
     const session = new TargetSession(this, created.targetId, attached.sessionId);
     this.sessions.set(attached.sessionId, session);
 
+    if (options.visible) {
+      await this.sendBrowserCommand("Target.activateTarget", {
+        targetId: created.targetId,
+      }).catch(() => {});
+    }
+
     await session.send("Page.enable");
     await session.send("Runtime.enable");
     await session.send("DOM.enable");
+
+    if (options.visible) {
+      await session.send("Page.bringToFront").catch(() => {});
+    }
 
     return session;
   }

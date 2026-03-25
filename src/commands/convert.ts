@@ -79,6 +79,9 @@ async function openRuntime(
   debugEnabled: boolean,
 ): Promise<RuntimeResources> {
   const logger = createLogger(debugEnabled);
+  if (interactive) {
+    logger.info("Opening Chrome in interactive mode.");
+  }
   const chrome = await connectChrome({
     cdpUrl: options.cdpUrl,
     browserPath: options.browserPath,
@@ -89,6 +92,9 @@ async function openRuntime(
 
   const cdp = await CdpClient.connect(chrome.browserWsUrl);
   const browser = await BrowserSession.open(cdp, { interactive });
+  if (interactive) {
+    await browser.bringToFront().catch(() => {});
+  }
   const network = new NetworkJournal(browser.targetSession, logger);
   await network.start();
 
@@ -132,6 +138,9 @@ async function waitForInteraction(
 ): Promise<AdapterLoginInfo> {
   const timeoutMs = interaction.timeoutMs ?? options.interactionTimeoutMs;
   const pollIntervalMs = interaction.pollIntervalMs ?? options.interactionPollIntervalMs;
+  if (context.interactive) {
+    await context.browser.bringToFront().catch(() => {});
+  }
   context.log.info(interaction.prompt);
 
   const startedAt = Date.now();
@@ -184,7 +193,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
   }
 
   const url = normalizeUrl(options.url);
-  let runtime = await openRuntime(options, false, Boolean(options.debugDir));
+  let runtime = await openRuntime(options, options.waitForInteraction, Boolean(options.debugDir));
   const logger = createLogger(Boolean(options.debugDir));
 
   try {

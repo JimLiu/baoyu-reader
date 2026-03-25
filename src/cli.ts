@@ -20,7 +20,7 @@ Options:
                         or baoyu-skills/chrome-profile.
   --headless            Launch a temporary headless Chrome if needed
   --wait-for-interaction
-                        Wait in a visible Chrome window for manual login or verification, then continue
+                        Start in a visible Chrome window and wait for manual login or verification if needed
   --wait-for-login      Alias for --wait-for-interaction
   --interaction-timeout <ms>
                         How long to wait for manual interaction before failing (default: 600000)

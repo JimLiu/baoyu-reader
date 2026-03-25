@@ -1,11 +1,36 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { CdpClient, TargetSession, evaluateRuntime } from "./cdp-client";
 
 interface NavigationResult {
   errorText?: string;
 }
 
+const execFileAsync = promisify(execFile);
+const MACOS_BROWSER_APP_IDS = [
+  "com.google.Chrome",
+  "org.chromium.Chromium",
+  "com.brave.Browser",
+  "com.microsoft.edgemac",
+];
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function activateBrowserApp(): Promise<void> {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  for (const appId of MACOS_BROWSER_APP_IDS) {
+    try {
+      await execFileAsync("osascript", ["-e", `tell application id "${appId}" to activate`]);
+      return;
+    } catch {
+      // Try the next installed browser bundle id.
+    }
+  }
 }
 
 export class BrowserSession {
@@ -26,7 +51,11 @@ export class BrowserSession {
       initialUrl: options.initialUrl,
       visible: options.interactive,
     });
-    return new BrowserSession(cdp, targetSession, Boolean(options.interactive));
+    const browser = new BrowserSession(cdp, targetSession, Boolean(options.interactive));
+    if (browser.interactive) {
+      await browser.bringToFront().catch(() => {});
+    }
+    return browser;
   }
 
   async goto(url: string, timeoutMs = 30_000): Promise<void> {
@@ -65,6 +94,17 @@ export class BrowserSession {
 
   async getURL(): Promise<string> {
     return this.evaluate<string>("window.location.href");
+  }
+
+  async bringToFront(): Promise<void> {
+    await this.targetSession.send("Page.bringToFront").catch(async () => {
+      await this.cdp.sendBrowserCommand("Target.activateTarget", {
+        targetId: this.targetSession.targetId,
+      });
+    });
+    if (this.interactive) {
+      await activateBrowserApp().catch(() => {});
+    }
   }
 
   async click(selector: string): Promise<void> {
