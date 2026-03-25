@@ -1,5 +1,5 @@
 import type { ExtractedDocument, ContentBlock } from "../../extract/document";
-import { findTweetNode, formatMediaList, formatTweetAuthor, getTweetText, isRecord, normalizeTitle, toXTweet } from "./shared";
+import { findTweetNode, formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, getTweetText, isRecord, normalizeTitle, toXTweet } from "./shared";
 
 export function extractSingleTweetDocumentFromPayload(
   payload: unknown,
@@ -60,6 +60,7 @@ export function extractSingleTweetDocumentFromPayload(
     metadata: {
       kind: "x/post",
       tweetId: xTweet.id,
+      ...getTweetAuthorMetadata(xTweet),
       conversationId:
         typeof tweet.legacy === "object" &&
         tweet.legacy !== null &&
@@ -73,4 +74,3 @@ export function extractSingleTweetDocumentFromPayload(
     content,
   };
 }
-

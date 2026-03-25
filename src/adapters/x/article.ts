@@ -1,5 +1,5 @@
 import type { ExtractedDocument } from "../../extract/document";
-import { getTweetText, findTweetNode, formatTweetAuthor, getUser, isRecord, normalizeTitle, toXTweet } from "./shared";
+import { getTweetAuthorMetadata, getTweetText, findTweetNode, formatTweetAuthor, getUser, isRecord, normalizeTitle, toXTweet } from "./shared";
 import type { JsonObject } from "./types";
 
 function normalizeEntityMap(entityMap: unknown): Map<string, JsonObject> {
@@ -204,7 +204,10 @@ export function extractArticleDocumentFromPayload(
     metadata: {
       kind: "x/article",
       tweetId: xTweet.id,
-      screenName: xTweet.author ?? user.screenName,
+      authorName: xTweet.authorName ?? user.name,
+      authorUsername: xTweet.author ?? user.screenName,
+      authorUrl: (xTweet.author ?? user.screenName) ? `https://x.com/${xTweet.author ?? user.screenName}` : undefined,
+      ...getTweetAuthorMetadata(xTweet),
     },
     content: [{ type: "markdown", markdown }],
   };

@@ -36,22 +36,64 @@ function renderBlock(block: ContentBlock): string {
   }
 }
 
-function renderMetadata(document: ExtractedDocument): string | null {
-  const lines: string[] = [];
-  lines.push(`- Source: ${document.canonicalUrl ?? document.url}`);
-  if (document.author) {
-    lines.push(`- Author: ${document.author}`);
+function isDefinedValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function renderFrontmatterValue(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(value);
   }
-  if (document.siteName) {
-    lines.push(`- Site: ${document.siteName}`);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
   }
-  if (document.publishedAt) {
-    lines.push(`- Published: ${document.publishedAt}`);
+  return JSON.stringify(value);
+}
+
+function renderFrontmatter(document: ExtractedDocument): string {
+  const fields = new Map<string, unknown>();
+  const preferredOrder = [
+    "url",
+    "requestedUrl",
+    "author",
+    "authorName",
+    "authorUsername",
+    "authorUrl",
+    "siteName",
+    "publishedAt",
+    "summary",
+    "adapter",
+  ];
+
+  fields.set("url", document.canonicalUrl ?? document.url);
+  fields.set("requestedUrl", document.requestedUrl ?? document.url);
+  fields.set("author", document.author);
+  fields.set("siteName", document.siteName);
+  fields.set("publishedAt", document.publishedAt);
+  fields.set("summary", document.summary);
+  fields.set("adapter", document.adapter);
+
+  for (const [key, value] of Object.entries(document.metadata ?? {})) {
+    if (!fields.has(key)) {
+      fields.set(key, value);
+    }
   }
-  if (document.adapter) {
-    lines.push(`- Adapter: ${document.adapter}`);
+
+  const orderedKeys = [
+    ...preferredOrder.filter((key) => fields.has(key)),
+    ...Array.from(fields.keys()).filter((key) => !preferredOrder.includes(key)).sort(),
+  ];
+
+  const lines = orderedKeys
+    .map((key) => [key, fields.get(key)] as const)
+    .filter(([, value]) => isDefinedValue(value))
+    .map(([key, value]) => `${key}: ${renderFrontmatterValue(value)}`);
+
+  if (lines.length === 0) {
+    return "";
   }
-  return lines.length > 0 ? lines.join("\n") : null;
+
+  return `---\n${lines.join("\n")}\n---`;
 }
 
 function cleanMarkdown(markdown: string): string {
@@ -60,25 +102,20 @@ function cleanMarkdown(markdown: string): string {
 
 export function renderMarkdown(document: ExtractedDocument): string {
   const sections: string[] = [];
+  const frontmatter = renderFrontmatter(document);
+
+  if (frontmatter) {
+    sections.push(frontmatter);
+  }
 
   if (document.title) {
     sections.push(`# ${document.title}`);
-  }
-
-  const metadata = renderMetadata(document);
-  if (metadata) {
-    sections.push(metadata);
   }
 
   const body = document.content
     .map((block) => renderBlock(block))
     .filter(Boolean)
     .join("\n\n");
-
-  const normalizedSummary = document.summary?.trim();
-  if (normalizedSummary && !body.startsWith(normalizedSummary)) {
-    sections.push(normalizedSummary);
-  }
 
   if (body) {
     sections.push(body);

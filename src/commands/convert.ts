@@ -92,6 +92,8 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
       throw new Error("Failed to extract a document from the target URL");
     }
 
+    document.requestedUrl ??= url.toString();
+
     const markdown = renderMarkdown(document);
 
     if (options.output) {

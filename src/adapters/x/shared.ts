@@ -81,9 +81,14 @@ export function getUser(tweet: JsonObject): XUser {
       ? (tweet.core.user_results.result as JsonObject)
       : emptyObject();
   const legacy = isRecord(result.legacy) ? result.legacy : emptyObject();
+  const core = isRecord(result.core) ? result.core : emptyObject();
   return {
-    name: typeof legacy.name === "string" ? legacy.name : undefined,
-    screenName: typeof legacy.screen_name === "string" ? legacy.screen_name : undefined,
+    name:
+      (typeof legacy.name === "string" ? legacy.name : undefined) ??
+      (typeof core.name === "string" ? core.name : undefined),
+    screenName:
+      (typeof legacy.screen_name === "string" ? legacy.screen_name : undefined) ??
+      (typeof core.screen_name === "string" ? core.screen_name : undefined),
   };
 }
 
@@ -213,6 +218,14 @@ export function formatTweetAuthor(tweet: XTweet): string | undefined {
     return `@${tweet.author}`;
   }
   return tweet.authorName;
+}
+
+export function getTweetAuthorMetadata(tweet: XTweet): Record<string, unknown> {
+  return {
+    authorName: tweet.authorName,
+    authorUsername: tweet.author,
+    authorUrl: tweet.author ? `https://x.com/${tweet.author}` : undefined,
+  };
 }
 
 export function formatMediaList(media: XMedia[]): string[] {

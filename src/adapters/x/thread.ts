@@ -1,5 +1,5 @@
 import type { ExtractedDocument } from "../../extract/document";
-import { formatMediaList, formatTweetAuthor, isRecord, normalizeTitle, toXTweet } from "./shared";
+import { formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, isRecord, normalizeTitle, toXTweet } from "./shared";
 import type { JsonObject, XTweet } from "./types";
 
 function extractTweetResult(node: unknown): JsonObject | null {
@@ -138,8 +138,8 @@ export function extractThreadDocumentFromPayloads(
       kind: "x/thread",
       tweetId: rootTweet.id,
       tweetCount: tweets.length,
+      ...getTweetAuthorMetadata(rootTweet),
     },
     content: [{ type: "markdown", markdown: buildThreadMarkdown(tweets) }],
   };
 }
-

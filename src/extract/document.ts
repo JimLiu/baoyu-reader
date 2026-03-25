@@ -38,6 +38,7 @@ export type ContentBlock =
 
 export interface ExtractedDocument {
   url: string;
+  requestedUrl?: string;
   canonicalUrl?: string;
   title?: string;
   author?: string;
@@ -48,4 +49,3 @@ export interface ExtractedDocument {
   metadata?: Record<string, unknown>;
   adapter?: string;
 }
-
