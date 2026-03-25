@@ -10,11 +10,22 @@ export const youtubeAdapter: Adapter = {
   async process(context) {
     const videoId = parseYouTubeVideoId(context.input.url);
     if (!videoId) {
-      return null;
+      return {
+        status: "no_document",
+      };
     }
 
     context.log.info(`Loading ${context.input.url.toString()} with youtube adapter`);
-    return extractYouTubeTranscriptDocument(context, videoId);
+    const document = await extractYouTubeTranscriptDocument(context, videoId);
+    if (!document) {
+      return {
+        status: "no_document",
+      };
+    }
+
+    return {
+      status: "ok",
+      document,
+    };
   },
 };
-

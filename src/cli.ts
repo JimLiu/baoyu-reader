@@ -19,6 +19,16 @@ Options:
                         Chrome user data dir. Defaults to BAOYU_CHROME_PROFILE_DIR
                         or baoyu-skills/chrome-profile.
   --headless            Launch a temporary headless Chrome if needed
+  --wait-for-interaction
+                        Wait in a visible Chrome window for manual login or verification, then continue
+  --wait-for-login      Alias for --wait-for-interaction
+  --interaction-timeout <ms>
+                        How long to wait for manual interaction before failing (default: 600000)
+  --interaction-poll-interval <ms>
+                        How often to poll interaction state while waiting (default: 1500)
+  --login-timeout <ms>  Alias for --interaction-timeout
+  --login-poll-interval <ms>
+                        Alias for --interaction-poll-interval
   --timeout <ms>        Page timeout in milliseconds (default: 30000)
   --help                Show help
 `.trim();
@@ -32,6 +42,9 @@ function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     json: false,
     headless: false,
+    waitForInteraction: false,
+    interactionTimeoutMs: 600_000,
+    interactionPollIntervalMs: 1_500,
     timeoutMs: 30_000,
     help: false,
   };
@@ -50,6 +63,10 @@ function parseArgs(argv: string[]): CliOptions {
     }
     if (value === "--headless") {
       options.headless = true;
+      continue;
+    }
+    if (value === "--wait-for-interaction" || value === "--wait-for-login") {
+      options.waitForInteraction = true;
       continue;
     }
     if (value === "--output") {
@@ -88,6 +105,24 @@ function parseArgs(argv: string[]): CliOptions {
         throw new Error(`Invalid timeout: ${args[index + 1]}`);
       }
       options.timeoutMs = parsed;
+      index += 1;
+      continue;
+    }
+    if (value === "--interaction-timeout" || value === "--login-timeout") {
+      const parsed = Number(args[index + 1]);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`Invalid interaction timeout: ${args[index + 1]}`);
+      }
+      options.interactionTimeoutMs = parsed;
+      index += 1;
+      continue;
+    }
+    if (value === "--interaction-poll-interval" || value === "--login-poll-interval") {
+      const parsed = Number(args[index + 1]);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`Invalid interaction poll interval: ${args[index + 1]}`);
+      }
+      options.interactionPollIntervalMs = parsed;
       index += 1;
       continue;
     }

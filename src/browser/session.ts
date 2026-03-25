@@ -12,11 +12,21 @@ export class BrowserSession {
   private constructor(
     private readonly cdp: CdpClient,
     public readonly targetSession: TargetSession,
+    public readonly interactive: boolean,
   ) {}
 
-  static async open(cdp: CdpClient): Promise<BrowserSession> {
-    const targetSession = await cdp.createPageSession("about:blank");
-    return new BrowserSession(cdp, targetSession);
+  static async open(
+    cdp: CdpClient,
+    options: {
+      initialUrl?: string;
+      interactive?: boolean;
+    } = {},
+  ): Promise<BrowserSession> {
+    const targetSession = await cdp.createPageSession({
+      initialUrl: options.initialUrl,
+      visible: options.interactive,
+    });
+    return new BrowserSession(cdp, targetSession, Boolean(options.interactive));
   }
 
   async goto(url: string, timeoutMs = 30_000): Promise<void> {
@@ -103,4 +113,3 @@ export class BrowserSession {
     await this.cdp.closeTarget(this.targetSession.targetId);
   }
 }
-

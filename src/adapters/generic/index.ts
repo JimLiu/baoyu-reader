@@ -1,4 +1,5 @@
 import type { Adapter } from "../types";
+import { detectInteractionGate } from "../../browser/interaction-gates";
 import { extractDocumentFromHtml } from "../../extract/html-extractor";
 
 export const genericAdapter: Adapter = {
@@ -35,11 +36,23 @@ export const genericAdapter: Adapter = {
       context.browser.getURL(),
     ]);
 
-    return extractDocumentFromHtml({
+    const interaction = await detectInteractionGate(context.browser);
+    if (interaction) {
+      return {
+        status: "needs_interaction",
+        interaction,
+      };
+    }
+
+    const document = extractDocumentFromHtml({
       url: finalUrl,
       html,
       adapter: "generic",
     });
+
+    return {
+      status: "ok",
+      document,
+    };
   },
 };
-
