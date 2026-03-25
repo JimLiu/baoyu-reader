@@ -1,0 +1,229 @@
+import type { NetworkEntry } from "../../browser/network-journal";
+import type { XMedia, XTweet, XUser, JsonObject } from "./types";
+
+function emptyObject(): JsonObject {
+  return {};
+}
+
+export function isRecord(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function walk(value: unknown, visitor: (node: unknown) => boolean | void): boolean {
+  if (visitor(value)) {
+    return true;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (walk(item, visitor)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (isRecord(value)) {
+    for (const child of Object.values(value)) {
+      if (walk(child, visitor)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export function findTweetNode(payload: unknown, statusId: string): JsonObject | null {
+  let firstMatch: JsonObject | null = null;
+  let exactMatch: JsonObject | null = null;
+
+  walk(payload, (node) => {
+    if (!isRecord(node) || typeof node.rest_id !== "string" || !isRecord(node.legacy)) {
+      return false;
+    }
+
+    const hasText =
+      typeof node.legacy.full_text === "string" ||
+      (isRecord(node.note_tweet) &&
+        isRecord(node.note_tweet.note_tweet_results) &&
+        isRecord(node.note_tweet.note_tweet_results.result) &&
+        typeof node.note_tweet.note_tweet_results.result.text === "string");
+
+    if (!hasText) {
+      return false;
+    }
+
+    if (!firstMatch) {
+      firstMatch = node;
+    }
+
+    if (node.rest_id === statusId) {
+      exactMatch = node;
+      return true;
+    }
+
+    return false;
+  });
+
+  return exactMatch ?? firstMatch;
+}
+
+export function getLegacy(tweet: JsonObject): JsonObject {
+  return isRecord(tweet.legacy) ? tweet.legacy : emptyObject();
+}
+
+export function getUser(tweet: JsonObject): XUser {
+  const result =
+    isRecord(tweet.core) &&
+    isRecord(tweet.core.user_results) &&
+    isRecord(tweet.core.user_results.result)
+      ? (tweet.core.user_results.result as JsonObject)
+      : emptyObject();
+  const legacy = isRecord(result.legacy) ? result.legacy : emptyObject();
+  return {
+    name: typeof legacy.name === "string" ? legacy.name : undefined,
+    screenName: typeof legacy.screen_name === "string" ? legacy.screen_name : undefined,
+  };
+}
+
+export function getTweetText(tweet: JsonObject): string {
+  const legacy = getLegacy(tweet);
+  let text =
+    (isRecord(tweet.note_tweet) &&
+    isRecord(tweet.note_tweet.note_tweet_results) &&
+    isRecord(tweet.note_tweet.note_tweet_results.result) &&
+    typeof tweet.note_tweet.note_tweet_results.result.text === "string"
+      ? tweet.note_tweet.note_tweet_results.result.text
+      : undefined) ??
+    (typeof legacy.full_text === "string" ? legacy.full_text : "");
+
+  const entities = isRecord(legacy.entities) ? legacy.entities : emptyObject();
+  const urls = Array.isArray(entities.urls) ? entities.urls : [];
+  for (const value of urls) {
+    if (!isRecord(value) || typeof value.url !== "string") {
+      continue;
+    }
+    const replacement =
+      (typeof value.expanded_url === "string" && value.expanded_url) ||
+      (typeof value.display_url === "string" && value.display_url) ||
+      value.url;
+    text = text.replaceAll(value.url, replacement);
+  }
+
+  const extendedEntities = isRecord(legacy.extended_entities) ? legacy.extended_entities : emptyObject();
+  const media = Array.isArray(extendedEntities.media) ? extendedEntities.media : [];
+  for (const value of media) {
+    if (isRecord(value) && typeof value.url === "string") {
+      text = text.replaceAll(value.url, "").trim();
+    }
+  }
+
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function getTweetMedia(tweet: JsonObject): XMedia[] {
+  const legacy = getLegacy(tweet);
+  const extendedEntities = isRecord(legacy.extended_entities) ? legacy.extended_entities : emptyObject();
+  const media = Array.isArray(extendedEntities.media) ? extendedEntities.media : [];
+
+  return media
+    .map((value) => {
+      if (!isRecord(value) || typeof value.type !== "string") {
+        return null;
+      }
+      if (value.type === "photo" && typeof value.media_url_https === "string") {
+        return {
+          type: value.type,
+          url: value.media_url_https,
+          alt: typeof value.ext_alt_text === "string" ? value.ext_alt_text : undefined,
+        };
+      }
+      if ((value.type === "video" || value.type === "animated_gif") && typeof value.media_url_https === "string") {
+        return {
+          type: value.type,
+          url: value.media_url_https,
+        };
+      }
+      return null;
+    })
+    .filter((value): value is XMedia => value !== null);
+}
+
+export function getTweetUrl(tweet: JsonObject, fallbackUrl: string): string {
+  const user = getUser(tweet);
+  const fallbackScreenName = extractScreenNameFromUrl(fallbackUrl);
+  const id = typeof tweet.rest_id === "string" ? tweet.rest_id : "";
+  const screenName = user.screenName ?? fallbackScreenName;
+  if (screenName && id) {
+    return `https://x.com/${screenName}/status/${id}`;
+  }
+  return fallbackUrl;
+}
+
+export function extractScreenNameFromUrl(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/^\/([^/]+)\/(?:status|article)\//);
+    if (!match) {
+      return undefined;
+    }
+    if (match[1] === "i") {
+      return undefined;
+    }
+    return match[1];
+  } catch {
+    return undefined;
+  }
+}
+
+export function toXTweet(tweet: JsonObject, fallbackUrl: string): XTweet {
+  const legacy = getLegacy(tweet);
+  const user = getUser(tweet);
+  const fallbackScreenName = extractScreenNameFromUrl(fallbackUrl);
+  const screenName = user.screenName ?? fallbackScreenName;
+  return {
+    id: typeof tweet.rest_id === "string" ? tweet.rest_id : "",
+    author: screenName,
+    authorName: user.name,
+    text: getTweetText(tweet),
+    likes: typeof legacy.favorite_count === "number" ? legacy.favorite_count : 0,
+    retweets: typeof legacy.retweet_count === "number" ? legacy.retweet_count : 0,
+    replies: typeof legacy.reply_count === "number" ? legacy.reply_count : 0,
+    createdAt: typeof legacy.created_at === "string" ? legacy.created_at : undefined,
+    inReplyTo: typeof legacy.in_reply_to_status_id_str === "string" ? legacy.in_reply_to_status_id_str : undefined,
+    url: getTweetUrl(tweet, fallbackUrl),
+    media: getTweetMedia(tweet),
+  };
+}
+
+export function normalizeTitle(text: string, fallback: string): string {
+  const firstLine = text.split("\n")[0]?.trim();
+  if (!firstLine) {
+    return fallback;
+  }
+  return firstLine.slice(0, 120);
+}
+
+export function formatTweetAuthor(tweet: XTweet): string | undefined {
+  if (tweet.author && tweet.authorName) {
+    return `${tweet.authorName} (@${tweet.author})`;
+  }
+  if (tweet.author) {
+    return `@${tweet.author}`;
+  }
+  return tweet.authorName;
+}
+
+export function formatMediaList(media: XMedia[]): string[] {
+  return media.map((item) => {
+    if (item.type === "photo") {
+      return `photo: ${item.url}`;
+    }
+    return `${item.type}: ${item.url}`;
+  });
+}
+
+export function filterXGraphQlEntries(entries: NetworkEntry[]): NetworkEntry[] {
+  return entries.filter((entry) => entry.url.includes("/graphql/"));
+}
