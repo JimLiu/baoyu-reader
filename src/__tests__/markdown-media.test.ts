@@ -72,7 +72,7 @@ Poster: https://cdn.example.com/poster.png
       "https://substack-post-media.s3.amazonaws.com/public/images/b83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
     const markdown = `[![](${resizedUrl})](${linkedUrl})`;
 
-    expect(normalizeMarkdownMediaLinks(markdown)).toBe(`[![](${canonicalUrl})](${canonicalUrl})`);
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(`![](${canonicalUrl})`);
     expect(collectMediaFromMarkdown(markdown)).toEqual([
       {
         url: canonicalUrl,
@@ -80,5 +80,59 @@ Poster: https://cdn.example.com/poster.png
         role: "inline",
       },
     ]);
+  });
+
+  test("collapses linked images when href equals image url after normalization", () => {
+    const resizedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const linkedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const canonicalUrl =
+      "https://substack-post-media.s3.amazonaws.com/public/images/b83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const markdown = `[
+
+![](${resizedUrl})
+
+](${linkedUrl})`;
+
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(`![](${canonicalUrl})`);
+  });
+
+  test("compacts linked images when href differs from the image url", () => {
+    const markdown = `[
+
+![diagram](https://cdn.example.com/body.webp)
+
+](https://example.com/source)`;
+
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(
+      "[![diagram](https://cdn.example.com/body.webp)](https://example.com/source)",
+    );
+  });
+
+  test("keeps single-line linked images on one line after parser-based normalization", () => {
+    const markdown = `[![diagram](https://cdn.example.com/body.webp)](https://example.com/source)`;
+
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(
+      "[![diagram](https://cdn.example.com/body.webp)](https://example.com/source)",
+    );
+  });
+
+  test("repairs broken linked image blocks without disturbing surrounding paragraphs", () => {
+    const markdown = `Before
+
+[
+
+![diagram](https://cdn.example.com/body.webp)
+
+](https://example.com/source)
+
+After`;
+
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(`Before
+
+[![diagram](https://cdn.example.com/body.webp)](https://example.com/source)
+
+After`);
   });
 });

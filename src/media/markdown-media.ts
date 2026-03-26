@@ -1,3 +1,6 @@
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import type { ContentBlock, ExtractedDocument } from "../extract/document";
 import {
   isDataUri,
@@ -13,6 +16,25 @@ const MARKDOWN_LINK_RE =
   /(!?\[[^\]\n]*\])\((<)?((?:https?:\/\/[^)\s>]+)|(?:data:[^)>\s]+))(>)?\)/g;
 const FRONTMATTER_COVER_RE = /^(coverImage:\s*")((?:https?:\/\/[^"]+)|(?:data:[^"]+))(")/m;
 const RAW_URL_RE = /(?:https?:\/\/[^\s<>"')\]]+|data:[^\s<>"')\]]+)/g;
+
+interface MarkdownAstNode {
+  type: string;
+  url?: string | null;
+  alt?: string | null;
+  title?: string | null;
+  value?: string | null;
+  children?: MarkdownAstNode[];
+  position?: {
+    start?: { offset?: number | null };
+    end?: { offset?: number | null };
+  };
+}
+
+interface MarkdownReplacementRange {
+  start: number;
+  end: number;
+  value: string;
+}
 
 function inferMediaKindFromLabel(label: string, rawUrl: string): "image" | "video" | undefined {
   if (label.startsWith("![")) {
@@ -53,6 +75,183 @@ function pushMedia(assets: MediaAsset[], seen: Set<string>, media: MediaAsset): 
   });
 }
 
+function getNodeOffsets(node: MarkdownAstNode): { start: number; end: number } | null {
+  const start = node.position?.start?.offset;
+  const end = node.position?.end?.offset;
+  if (typeof start !== "number" || typeof end !== "number" || start < 0 || end < start) {
+    return null;
+  }
+  return { start, end };
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+}
+
+function escapeMarkdownTitle(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function formatMarkdownDestination(url: string): string {
+  return /[\s()<>]/.test(url) ? `<${url}>` : url;
+}
+
+function serializeImageNode(node: MarkdownAstNode): string {
+  const rawUrl = node.url ?? "";
+  const normalizedUrl = normalizeMediaUrl(rawUrl);
+  const alt = escapeMarkdownLabel(node.alt ?? "");
+  const title = node.title ? ` "${escapeMarkdownTitle(node.title)}"` : "";
+  return `![${alt}](${formatMarkdownDestination(normalizedUrl)}${title})`;
+}
+
+function serializeLinkedImageNode(linkNode: MarkdownAstNode, imageNode: MarkdownAstNode): string {
+  const imageMarkdown = serializeImageNode(imageNode);
+  const imageUrl = normalizeMediaUrl(imageNode.url ?? "");
+  const linkUrl = normalizeMediaUrl(linkNode.url ?? "");
+
+  if (!linkUrl || linkUrl === imageUrl) {
+    return imageMarkdown;
+  }
+
+  const title = linkNode.title ? ` "${escapeMarkdownTitle(linkNode.title)}"` : "";
+  return `[${imageMarkdown}](${formatMarkdownDestination(linkUrl)}${title})`;
+}
+
+function isParagraphWithSingleText(node: MarkdownAstNode | undefined, expectedValue: string): boolean {
+  if (node?.type !== "paragraph" || node.children?.length !== 1) {
+    return false;
+  }
+
+  const child = node.children[0];
+  return child?.type === "text" && child.value?.trim() === expectedValue;
+}
+
+function getSingleImageFromParagraph(node: MarkdownAstNode | undefined): MarkdownAstNode | null {
+  if (node?.type !== "paragraph" || node.children?.length !== 1) {
+    return null;
+  }
+
+  return node.children[0]?.type === "image" ? node.children[0] : null;
+}
+
+function extractBrokenLinkedImageDestination(node: MarkdownAstNode | undefined): string | null {
+  if (node?.type !== "paragraph") {
+    return null;
+  }
+
+  const children = node.children ?? [];
+  if (children.length !== 3) {
+    return null;
+  }
+
+  const [prefix, linkNode, suffix] = children;
+  if (prefix?.type !== "text" || prefix.value?.trim() !== "](") {
+    return null;
+  }
+  if (linkNode?.type !== "link" || !linkNode.url) {
+    return null;
+  }
+  if (suffix?.type !== "text" || suffix.value?.trim() !== ")") {
+    return null;
+  }
+
+  return linkNode.url;
+}
+
+function collectLinkedImageReplacements(
+  node: MarkdownAstNode,
+  replacements: MarkdownReplacementRange[],
+): void {
+  const children = node.children ?? [];
+
+  if (node.type === "link" && children.length === 1 && children[0]?.type === "image") {
+    const offsets = getNodeOffsets(node);
+    if (offsets) {
+      replacements.push({
+        start: offsets.start,
+        end: offsets.end,
+        value: serializeLinkedImageNode(node, children[0]),
+      });
+    }
+    return;
+  }
+
+  for (const child of children) {
+    collectLinkedImageReplacements(child, replacements);
+  }
+}
+
+function collectBrokenLinkedImageReplacements(
+  node: MarkdownAstNode,
+  replacements: MarkdownReplacementRange[],
+): void {
+  const children = node.children ?? [];
+  for (let index = 0; index <= children.length - 3; index += 1) {
+    const openParagraph = children[index];
+    const imageParagraph = children[index + 1];
+    const closeParagraph = children[index + 2];
+
+    if (!isParagraphWithSingleText(openParagraph, "[")) {
+      continue;
+    }
+
+    const imageNode = getSingleImageFromParagraph(imageParagraph);
+    if (!imageNode) {
+      continue;
+    }
+
+    const linkUrl = extractBrokenLinkedImageDestination(closeParagraph);
+    if (!linkUrl) {
+      continue;
+    }
+
+    const start = openParagraph.position?.start?.offset;
+    const end = closeParagraph.position?.end?.offset;
+    if (typeof start !== "number" || typeof end !== "number" || end < start) {
+      continue;
+    }
+
+    replacements.push({
+      start,
+      end,
+      value: serializeLinkedImageNode({ type: "link", url: linkUrl }, imageNode),
+    });
+
+    index += 2;
+  }
+
+  for (const child of children) {
+    collectBrokenLinkedImageReplacements(child, replacements);
+  }
+}
+
+function applyReplacements(source: string, replacements: MarkdownReplacementRange[]): string {
+  if (replacements.length === 0) {
+    return source;
+  }
+
+  let result = source;
+  const sorted = [...replacements].sort((left, right) => right.start - left.start);
+  for (const replacement of sorted) {
+    result = `${result.slice(0, replacement.start)}${replacement.value}${result.slice(replacement.end)}`;
+  }
+  return result;
+}
+
+function normalizeLinkedImageMarkdown(markdown: string): string {
+  let tree: MarkdownAstNode;
+  try {
+    tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as MarkdownAstNode;
+  } catch {
+    return markdown;
+  }
+
+  const replacements: MarkdownReplacementRange[] = [];
+  collectLinkedImageReplacements(tree, replacements);
+  collectBrokenLinkedImageReplacements(tree, replacements);
+  return applyReplacements(markdown, replacements);
+}
+
 export function normalizeMarkdownMediaLinks(markdown: string): string {
   MARKDOWN_LINK_RE.lastIndex = 0;
   let result = markdown.replace(MARKDOWN_LINK_RE, (full, label, openAngle, rawUrl, closeAngle) => {
@@ -72,7 +271,8 @@ export function normalizeMarkdownMediaLinks(markdown: string): string {
   });
 
   RAW_URL_RE.lastIndex = 0;
-  return result.replace(RAW_URL_RE, (rawUrl) => normalizeMediaUrl(rawUrl));
+  result = result.replace(RAW_URL_RE, (rawUrl) => normalizeMediaUrl(rawUrl));
+  return normalizeLinkedImageMarkdown(result);
 }
 
 export function collectMediaFromText(

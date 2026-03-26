@@ -59,11 +59,40 @@ describe("renderMarkdown", () => {
       metadata: {
         coverImage: resizedUrl,
       },
-      content: [{ type: "markdown", markdown: `[![](${resizedUrl})](${linkedUrl})` }],
+      content: [
+        {
+          type: "markdown",
+          markdown: `[
+
+![](${resizedUrl})
+
+](${linkedUrl})`,
+        },
+      ],
     });
 
     expect(markdown).toContain(`coverImage: "${canonicalUrl}"`);
-    expect(markdown).toContain(`[![](${canonicalUrl})](${canonicalUrl})`);
+    expect(markdown).toContain(`![](${canonicalUrl})`);
+    expect(markdown).not.toContain(`[![](${canonicalUrl})](${canonicalUrl})`);
     expect(markdown).not.toContain("substackcdn.com/image/fetch");
+  });
+
+  test("renders linked images on a single line when href differs from the image url", () => {
+    const markdown = renderMarkdown({
+      url: "https://example.com/post",
+      content: [
+        {
+          type: "markdown",
+          markdown: `[
+
+![diagram](https://cdn.example.com/body.webp)
+
+](https://example.com/source)`,
+        },
+      ],
+    });
+
+    expect(markdown).toContain("[![diagram](https://cdn.example.com/body.webp)](https://example.com/source)");
+    expect(markdown).not.toContain("](https://example.com/source)\n");
   });
 });
