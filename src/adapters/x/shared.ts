@@ -41,10 +41,7 @@ function hasTweetText(node: JsonObject): boolean {
   const legacy = isRecord(node.legacy) ? node.legacy : emptyObject();
   return (
     typeof legacy.full_text === "string" ||
-    (isRecord(node.note_tweet) &&
-      isRecord(node.note_tweet.note_tweet_results) &&
-      isRecord(node.note_tweet.note_tweet_results.result) &&
-      typeof node.note_tweet.note_tweet_results.result.text === "string")
+    typeof getNoteTweetText(node) === "string"
   );
 }
 
@@ -134,26 +131,73 @@ export function getUser(tweet: JsonObject): XUser {
   };
 }
 
+function getNoteTweetResult(tweet: JsonObject): JsonObject | null {
+  if (
+    !isRecord(tweet.note_tweet) ||
+    !isRecord(tweet.note_tweet.note_tweet_results) ||
+    !isRecord(tweet.note_tweet.note_tweet_results.result)
+  ) {
+    return null;
+  }
+
+  return tweet.note_tweet.note_tweet_results.result as JsonObject;
+}
+
+function getNoteTweetText(tweet: JsonObject): string | undefined {
+  const noteTweet = getNoteTweetResult(tweet);
+  return typeof noteTweet?.text === "string" ? noteTweet.text : undefined;
+}
+
+interface TweetUrlEntity {
+  url: string;
+  expandedUrl?: string;
+  displayUrl?: string;
+}
+
+function collectTweetUrlEntities(values: unknown[]): TweetUrlEntity[] {
+  return values
+    .map((value) => {
+      if (!isRecord(value) || typeof value.url !== "string" || !value.url) {
+        return null;
+      }
+
+      return {
+        url: value.url,
+        expandedUrl: typeof value.expanded_url === "string" ? value.expanded_url : undefined,
+        displayUrl: typeof value.display_url === "string" ? value.display_url : undefined,
+      };
+    })
+    .filter((value): value is TweetUrlEntity => value !== null);
+}
+
+function getTweetUrlEntities(tweet: JsonObject): TweetUrlEntity[] {
+  const noteTweet = getNoteTweetResult(tweet);
+  const noteTweetEntitySet = noteTweet && isRecord(noteTweet.entity_set) ? noteTweet.entity_set : emptyObject();
+  const noteTweetUrls = collectTweetUrlEntities(Array.isArray(noteTweetEntitySet.urls) ? noteTweetEntitySet.urls : []);
+
+  const legacy = getLegacy(tweet);
+  const legacyEntities = isRecord(legacy.entities) ? legacy.entities : emptyObject();
+  const legacyUrls = collectTweetUrlEntities(Array.isArray(legacyEntities.urls) ? legacyEntities.urls : []);
+
+  const seen = new Set<string>();
+  return [...noteTweetUrls, ...legacyUrls].filter((value) => {
+    if (seen.has(value.url)) {
+      return false;
+    }
+    seen.add(value.url);
+    return true;
+  });
+}
+
 export function getTweetText(tweet: JsonObject): string {
   const legacy = getLegacy(tweet);
   let text =
-    (isRecord(tweet.note_tweet) &&
-    isRecord(tweet.note_tweet.note_tweet_results) &&
-    isRecord(tweet.note_tweet.note_tweet_results.result) &&
-    typeof tweet.note_tweet.note_tweet_results.result.text === "string"
-      ? tweet.note_tweet.note_tweet_results.result.text
-      : undefined) ??
-    (typeof legacy.full_text === "string" ? legacy.full_text : "");
+    getNoteTweetText(tweet) ?? (typeof legacy.full_text === "string" ? legacy.full_text : "");
 
-  const entities = isRecord(legacy.entities) ? legacy.entities : emptyObject();
-  const urls = Array.isArray(entities.urls) ? entities.urls : [];
-  for (const value of urls) {
-    if (!isRecord(value) || typeof value.url !== "string") {
-      continue;
-    }
+  for (const value of getTweetUrlEntities(tweet)) {
     const replacement =
-      (typeof value.expanded_url === "string" && value.expanded_url) ||
-      (typeof value.display_url === "string" && value.display_url) ||
+      (typeof value.expandedUrl === "string" && value.expandedUrl) ||
+      (typeof value.displayUrl === "string" && value.displayUrl) ||
       value.url;
     text = text.replaceAll(value.url, replacement);
   }

@@ -262,4 +262,81 @@ describe("x article extraction", () => {
       "> ![](https://pbs.twimg.com/media/embedded?format=jpg&name=4096x4096)",
     );
   });
+
+  test("prefers expanded link entity urls in article blocks", () => {
+    const payload = {
+      data: {
+        tweetResult: {
+          result: {
+            rest_id: "2036670816344064290",
+            legacy: {
+              full_text: "Fallback text",
+              favorite_count: 12,
+              retweet_count: 3,
+              reply_count: 1,
+              created_at: "Wed Mar 25 11:10:38 +0000 2026",
+            },
+            core: {
+              user_results: {
+                result: {
+                  legacy: {
+                    name: "Eric Zakariasson",
+                    screen_name: "ericzakariasson",
+                  },
+                },
+              },
+            },
+            article: {
+              article_results: {
+                result: {
+                  title: "Article with expanded links",
+                  content_state: {
+                    blocks: [
+                      {
+                        type: "unstyled",
+                        text: "Read more: https://t.co/example",
+                        data: {},
+                        entityRanges: [{ key: 0, length: 20, offset: 11 }],
+                        inlineStyleRanges: [],
+                      },
+                    ],
+                    entityMap: [
+                      {
+                        key: "0",
+                        value: {
+                          type: "LINK",
+                          mutability: "Mutable",
+                          data: {
+                            expanded_url: "https://example.com/report",
+                            url: "https://t.co/example",
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const document = extractArticleDocumentFromPayload(
+      payload,
+      "2036670816344064290",
+      "https://x.com/ericzakariasson/status/2036670816344064290",
+    );
+
+    expect(document).not.toBeNull();
+
+    const content = document?.content[0];
+    expect(content?.type).toBe("markdown");
+    if (!content || content.type !== "markdown") {
+      throw new Error("Expected markdown content");
+    }
+
+    expect(content.markdown).toContain("https://example.com/report");
+    expect(content.markdown).not.toContain("https://t.co/example");
+  });
 });

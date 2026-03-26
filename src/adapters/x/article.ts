@@ -98,11 +98,23 @@ function getLinkUrl(entityMap: Map<string, JsonObject>, entityKey: unknown): str
   }
 
   const data = isRecord(entity.data) ? entity.data : {};
-  if (typeof data.url !== "string") {
-    return null;
+  const candidates = [
+    data.expanded_url,
+    data.expandedUrl,
+    data.original_url,
+    data.originalUrl,
+    data.url,
+    data.display_url,
+    data.displayUrl,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
   }
 
-  return data.url.trim() || null;
+  return null;
 }
 
 function getTweetId(entityMap: Map<string, JsonObject>, entityKey: unknown): string | null {
