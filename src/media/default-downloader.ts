@@ -4,6 +4,7 @@ import {
   buildFileName,
   isDataUri,
   normalizeContentType,
+  normalizeMediaUrl,
   resolveExtensionFromContentType,
   resolveExtensionFromUrl,
   resolveMediaKind,
@@ -41,11 +42,15 @@ function dedupeMedia(media: MediaAsset[]): MediaAsset[] {
   const deduped: MediaAsset[] = [];
   const seen = new Set<string>();
   for (const item of media) {
-    if (!item.url || seen.has(item.url)) {
+    const normalizedUrl = normalizeMediaUrl(item.url);
+    if (!normalizedUrl || seen.has(normalizedUrl)) {
       continue;
     }
-    seen.add(item.url);
-    deduped.push(item);
+    seen.add(normalizedUrl);
+    deduped.push({
+      ...item,
+      url: normalizedUrl,
+    });
   }
   return deduped;
 }
@@ -69,7 +74,7 @@ export async function downloadMediaAssets(
 
   for (const asset of dedupedMedia) {
     try {
-      let sourceUrl = asset.url;
+      let sourceUrl = normalizeMediaUrl(asset.url);
       let contentType = "";
       let extension: string | undefined;
       let kind: MediaKind | undefined;
@@ -89,7 +94,7 @@ export async function downloadMediaAssets(
         kind = resolveMediaKind(sourceUrl, contentType, extension, asset.kind);
         bytes = parsed.bytes;
       } else {
-        const response = await fetch(asset.url, {
+        const response = await fetch(sourceUrl, {
           method: "GET",
           redirect: "follow",
           headers: {
@@ -103,7 +108,7 @@ export async function downloadMediaAssets(
           continue;
         }
 
-        sourceUrl = response.url || asset.url;
+        sourceUrl = normalizeMediaUrl(response.url || sourceUrl);
         contentType = normalizeContentType(response.headers.get("content-type"));
         extension =
           resolveExtensionFromUrl(sourceUrl) ??
