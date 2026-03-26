@@ -1,5 +1,5 @@
 import type { ExtractedDocument, ContentBlock } from "../../extract/document";
-import { findTweetNode, formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, getTweetText, isRecord, normalizeTitle, toXTweet } from "./shared";
+import { findTweetNode, formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, normalizeTitle, toXTweet } from "./shared";
 
 export function extractSingleTweetDocumentFromPayload(
   payload: unknown,
@@ -33,15 +33,26 @@ export function extractSingleTweetDocumentFromPayload(
     }
   }
 
-  const quoted =
-    isRecord(tweet.quoted_status_result) && isRecord(tweet.quoted_status_result.result)
-      ? tweet.quoted_status_result.result
-      : null;
-  if (quoted && isRecord(quoted)) {
-    const quotedText = getTweetText(quoted);
-    if (quotedText) {
+  if (xTweet.quotedTweet) {
+    const quotedLines: string[] = [];
+    const quotedAuthor =
+      xTweet.quotedTweet.author && xTweet.quotedTweet.authorName
+        ? `${xTweet.quotedTweet.authorName} (@${xTweet.quotedTweet.author})`
+        : xTweet.quotedTweet.author
+          ? `@${xTweet.quotedTweet.author}`
+          : xTweet.quotedTweet.authorName;
+
+    if (quotedAuthor) {
+      quotedLines.push(quotedAuthor);
+    }
+    if (xTweet.quotedTweet.text) {
+      quotedLines.push(xTweet.quotedTweet.text);
+    }
+    quotedLines.push(...formatMediaList(xTweet.quotedTweet.media));
+
+    if (quotedLines.length > 0) {
       content.push({ type: "heading", depth: 2, text: "Quoted Tweet" });
-      content.push({ type: "quote", text: quotedText });
+      content.push({ type: "quote", text: quotedLines.join("\n\n") });
     }
   }
 

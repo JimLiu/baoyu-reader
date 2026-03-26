@@ -1,5 +1,5 @@
 import type { NetworkEntry } from "../../browser/network-journal";
-import type { XMedia, XTweet, XUser, JsonObject } from "./types";
+import type { XMedia, XQuotedTweet, XTweet, XUser, JsonObject } from "./types";
 
 function emptyObject(): JsonObject {
   return {};
@@ -95,6 +95,23 @@ export function getLegacy(tweet: JsonObject): JsonObject {
   return isRecord(tweet.legacy) ? tweet.legacy : emptyObject();
 }
 
+export function unwrapTweetResult(node: unknown): JsonObject | null {
+  if (!isRecord(node)) {
+    return null;
+  }
+
+  if (node.__typename === "TweetWithVisibilityResults" && isRecord(node.tweet)) {
+    return unwrapTweetResult(node.tweet);
+  }
+
+  const tweet = isRecord(node.tweet) ? (node.tweet as JsonObject) : node;
+  if (typeof tweet.rest_id !== "string" || !isRecord(tweet.legacy)) {
+    return null;
+  }
+
+  return tweet;
+}
+
 export function getUser(tweet: JsonObject): XUser {
   const result =
     isRecord(tweet.core) &&
@@ -188,6 +205,25 @@ export function getTweetUrl(tweet: JsonObject, fallbackUrl: string): string {
   return fallbackUrl;
 }
 
+export function getQuotedTweet(tweet: JsonObject, fallbackUrl: string): XQuotedTweet | undefined {
+  const quoted = unwrapTweetResult(
+    isRecord(tweet.quoted_status_result) ? tweet.quoted_status_result.result : null,
+  );
+  if (!quoted) {
+    return undefined;
+  }
+
+  const user = getUser(quoted);
+  return {
+    id: typeof quoted.rest_id === "string" ? quoted.rest_id : "",
+    author: user.screenName,
+    authorName: user.name,
+    text: getTweetText(quoted),
+    url: getTweetUrl(quoted, fallbackUrl),
+    media: getTweetMedia(quoted),
+  };
+}
+
 export function extractScreenNameFromUrl(url: string): string | undefined {
   try {
     const parsed = new URL(url);
@@ -221,6 +257,7 @@ export function toXTweet(tweet: JsonObject, fallbackUrl: string): XTweet {
     inReplyTo: typeof legacy.in_reply_to_status_id_str === "string" ? legacy.in_reply_to_status_id_str : undefined,
     url: getTweetUrl(tweet, fallbackUrl),
     media: getTweetMedia(tweet),
+    quotedTweet: getQuotedTweet(tweet, fallbackUrl),
   };
 }
 

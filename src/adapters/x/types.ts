@@ -11,6 +11,15 @@ export interface XMedia {
   alt?: string;
 }
 
+export interface XQuotedTweet {
+  id: string;
+  author?: string;
+  authorName?: string;
+  text: string;
+  url: string;
+  media: XMedia[];
+}
+
 export interface XTweet {
   id: string;
   author?: string;
@@ -23,5 +32,5 @@ export interface XTweet {
   inReplyTo?: string;
   url: string;
   media: XMedia[];
+  quotedTweet?: XQuotedTweet;
 }
-
