@@ -1,6 +1,12 @@
 import type { ExtractedDocument } from "../../extract/document";
 import { detectInteractionGate } from "../../browser/interaction-gates";
-import { formatTimestamp, type YouTubeChapter, type YouTubeTranscriptSegment } from "./utils";
+import {
+  buildYouTubeThumbnailCandidates,
+  parseYouTubeDescriptionChapters,
+  renderYouTubeTranscriptMarkdown,
+  type YouTubeChapter,
+  type YouTubeTranscriptSegment,
+} from "./utils";
 
 interface CaptionInfo {
   captionUrl: string;
@@ -9,64 +15,87 @@ interface CaptionInfo {
   available: string[];
   title?: string;
   author?: string;
-  coverImage?: string;
+  authorUrl?: string;
+  channelId?: string;
+  description?: string;
+  publishedAt?: string;
+  viewCount?: number;
+  durationSeconds?: number;
+  keywords: string[];
+  category?: string;
+  isLiveContent?: boolean;
+  coverImages: string[];
 }
 
-function chunkSegments(
-  segments: YouTubeTranscriptSegment[],
-  chapters: YouTubeChapter[],
-): string {
-  if (segments.length === 0) {
-    return "";
+function normalizeUrl(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
   }
 
-  if (chapters.length > 0) {
-    const parts: string[] = [];
-    for (let index = 0; index < chapters.length; index += 1) {
-      const chapter = chapters[index];
-      const nextTime = chapters[index + 1]?.time ?? Number.POSITIVE_INFINITY;
-      const chapterSegments = segments.filter((segment) => segment.start >= chapter.time && segment.start < nextTime);
-      if (chapterSegments.length === 0) {
-        continue;
-      }
-      parts.push(`## ${chapter.title} (${formatTimestamp(chapter.time)})`);
-      parts.push(chapterSegments.map((segment) => segment.text).join(" "));
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "https:";
     }
-    if (parts.length > 0) {
-      return parts.join("\n\n");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function buildSummary(description: string | undefined, segments: YouTubeTranscriptSegment[]): string | undefined {
+  const descriptionSummary = description
+    ?.replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !/^https?:\/\//i.test(line));
+
+  if (descriptionSummary) {
+    return descriptionSummary.slice(0, 240);
+  }
+
+  const transcriptSummary = segments
+    .slice(0, 8)
+    .map((segment) => segment.text)
+    .join(" ")
+    .slice(0, 240)
+    .trim();
+
+  return transcriptSummary || undefined;
+}
+
+async function canFetchThumbnail(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: "HEAD", redirect: "follow" });
+    if (response.ok) {
+      return true;
+    }
+
+    if (response.status === 405) {
+      const fallbackResponse = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        redirect: "follow",
+      });
+      return fallbackResponse.ok;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+async function resolveBestCoverImage(videoId: string, coverImages: string[]): Promise<string | undefined> {
+  const candidates = buildYouTubeThumbnailCandidates(videoId, coverImages);
+
+  for (const candidate of candidates) {
+    if (await canFetchThumbnail(candidate)) {
+      return candidate;
     }
   }
 
-  const paragraphs: string[] = [];
-  let currentText: string[] = [];
-  let currentStart = segments[0]?.start ?? 0;
-  let lastEnd = segments[0]?.end ?? 0;
-
-  for (const segment of segments) {
-    const wouldOverflow =
-      currentText.join(" ").length > 320 ||
-      currentText.length >= 8 ||
-      segment.start - lastEnd > 8;
-
-    if (currentText.length > 0 && wouldOverflow) {
-      paragraphs.push(`### ${formatTimestamp(currentStart)}\n\n${currentText.join(" ")}`);
-      currentText = [];
-      currentStart = segment.start;
-    }
-
-    if (currentText.length === 0) {
-      currentStart = segment.start;
-    }
-
-    currentText.push(segment.text);
-    lastEnd = segment.end;
-  }
-
-  if (currentText.length > 0) {
-    paragraphs.push(`### ${formatTimestamp(currentStart)}\n\n${currentText.join(" ")}`);
-  }
-
-  return paragraphs.join("\n\n");
+  return candidates[0];
 }
 
 export async function extractYouTubeTranscriptDocument(
@@ -93,17 +122,75 @@ export async function extractYouTubeTranscriptDocument(
 
   const captionInfo = await context.browser.evaluate<CaptionInfo | { error: string }>(`
     (async () => {
+      function readText(value) {
+        if (!value) return undefined;
+        if (typeof value === 'string') {
+          const text = value.trim();
+          return text || undefined;
+        }
+        if (typeof value.simpleText === 'string') {
+          const text = value.simpleText.trim();
+          return text || undefined;
+        }
+        if (Array.isArray(value.runs)) {
+          const text = value.runs
+            .map((run) => typeof run?.text === 'string' ? run.text : '')
+            .join('')
+            .trim();
+          return text || undefined;
+        }
+        return undefined;
+      }
+
+      function parsePositiveInteger(value) {
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+          return Math.floor(value);
+        }
+        if (typeof value !== 'string') {
+          return undefined;
+        }
+        const normalized = value.replace(/[^\\d]/g, '');
+        if (!normalized) {
+          return undefined;
+        }
+        const parsed = Number.parseInt(normalized, 10);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+
       const apiKey = window.ytcfg?.data_?.INNERTUBE_API_KEY;
       const playerResponse = window.ytInitialPlayerResponse;
       const videoDetails = playerResponse?.videoDetails || {};
-      const title = videoDetails.title || document.title.replace(/ - YouTube$/, "").trim();
-      const author = videoDetails.author || document.querySelector('link[itemprop="name"]')?.getAttribute('content') || undefined;
-      const thumbnails = Array.isArray(videoDetails.thumbnail?.thumbnails)
-        ? videoDetails.thumbnail.thumbnails
+      const microformat = playerResponse?.microformat?.playerMicroformatRenderer || {};
+      const title =
+        videoDetails.title ||
+        readText(microformat.title) ||
+        document.title.replace(/ - YouTube$/, '').trim();
+      const author =
+        videoDetails.author ||
+        microformat.ownerChannelName ||
+        document.querySelector('link[itemprop="name"]')?.getAttribute('content') ||
+        undefined;
+      const authorUrl =
+        microformat.ownerProfileUrl ||
+        (typeof videoDetails.channelId === 'string' && videoDetails.channelId
+          ? 'https://www.youtube.com/channel/' + videoDetails.channelId
+          : undefined);
+      const description =
+        readText(microformat.description) ||
+        (typeof videoDetails.shortDescription === 'string' ? videoDetails.shortDescription.trim() : undefined);
+      const keywords = Array.isArray(videoDetails.keywords)
+        ? videoDetails.keywords.filter((keyword) => typeof keyword === 'string' && keyword.trim())
         : [];
-      const coverImage = thumbnails[thumbnails.length - 1]?.url;
+      const thumbnails = [
+        ...(Array.isArray(videoDetails.thumbnail?.thumbnails) ? videoDetails.thumbnail.thumbnails : []),
+        ...(Array.isArray(microformat.thumbnail?.thumbnails) ? microformat.thumbnail.thumbnails : []),
+      ]
+        .filter((thumbnail) => typeof thumbnail?.url === 'string' && thumbnail.url)
+        .sort((left, right) => ((right?.width || 0) * (right?.height || 0)) - ((left?.width || 0) * (left?.height || 0)))
+        .map((thumbnail) => thumbnail.url);
+
       if (!apiKey) {
-        return { error: "INNERTUBE_API_KEY not found on page" };
+        return { error: 'INNERTUBE_API_KEY not found on page' };
       }
 
       const response = await fetch('/youtubei/v1/player?key=' + apiKey + '&prettyPrint=false', {
@@ -133,10 +220,28 @@ export async function extractYouTubeTranscriptDocument(
         captionUrl: track.baseUrl,
         language: track.languageCode,
         kind: track.kind || 'manual',
-        available: tracks.map((item) => item.languageCode + (item.kind === 'asr' ? ' (auto)' : '')),
+        available: tracks.map((item) => {
+          const languageLabel = readText(item.name) || item.languageCode;
+          return item.kind === 'asr'
+            ? languageLabel + ' [' + item.languageCode + ', auto]'
+            : languageLabel + ' [' + item.languageCode + ']';
+        }),
         title,
         author,
-        coverImage,
+        authorUrl,
+        channelId: typeof videoDetails.channelId === 'string' ? videoDetails.channelId : undefined,
+        description,
+        publishedAt:
+          (typeof microformat.publishDate === 'string' && microformat.publishDate) ||
+          (typeof microformat.uploadDate === 'string' && microformat.uploadDate) ||
+          document.querySelector('meta[itemprop="datePublished"]')?.getAttribute('content') ||
+          undefined,
+        viewCount: parsePositiveInteger(videoDetails.viewCount) ?? parsePositiveInteger(microformat.viewCount),
+        durationSeconds: parsePositiveInteger(videoDetails.lengthSeconds),
+        keywords,
+        category: typeof microformat.category === 'string' ? microformat.category : undefined,
+        isLiveContent: Boolean(videoDetails.isLiveContent || microformat.isLiveContent),
+        coverImages: thumbnails,
       };
     })()
   `);
@@ -215,7 +320,7 @@ export async function extractYouTubeTranscriptDocument(
     return null;
   }
 
-  const chapters = await context.browser.evaluate<YouTubeChapter[]>(`
+  const extractedChapters = await context.browser.evaluate<YouTubeChapter[]>(`
     (() => {
       const data = window.ytInitialData;
       const markers = data?.playerOverlays?.playerOverlayRenderer
@@ -240,29 +345,46 @@ export async function extractYouTubeTranscriptDocument(
     })()
   `).catch(() => []);
 
-  const markdown = chunkSegments(segments, chapters);
+  const descriptionChapters = parseYouTubeDescriptionChapters(captionInfo.description);
+  const chapters = extractedChapters.length > 0 ? extractedChapters : descriptionChapters;
+  const markdown = renderYouTubeTranscriptMarkdown({
+    description: captionInfo.description,
+    segments,
+    chapters,
+  });
+
   if (!markdown) {
     return null;
   }
 
   const pageUrl = await context.browser.getURL();
-  const summary = segments.slice(0, 8).map((segment) => segment.text).join(" ").slice(0, 240);
+  const coverImage = await resolveBestCoverImage(videoId, captionInfo.coverImages);
+  const summary = buildSummary(captionInfo.description, segments);
 
   return {
     url: pageUrl,
     canonicalUrl: pageUrl,
     title: captionInfo.title || "YouTube Transcript",
     author: captionInfo.author,
+    publishedAt: captionInfo.publishedAt,
     siteName: "YouTube",
-    summary: summary || undefined,
+    summary,
     adapter: "youtube",
     metadata: {
       kind: "youtube/transcript",
       videoId,
-      coverImage: captionInfo.coverImage,
+      authorUrl: normalizeUrl(captionInfo.authorUrl),
+      channelId: captionInfo.channelId,
+      coverImage,
+      description: captionInfo.description,
+      durationSeconds: captionInfo.durationSeconds,
       language: captionInfo.language,
       captionKind: captionInfo.kind,
       availableLanguages: captionInfo.available,
+      viewCount: captionInfo.viewCount,
+      keywords: captionInfo.keywords,
+      category: captionInfo.category,
+      isLiveContent: captionInfo.isLiveContent,
       chapterCount: chapters.length,
     },
     content: [{ type: "markdown", markdown }],

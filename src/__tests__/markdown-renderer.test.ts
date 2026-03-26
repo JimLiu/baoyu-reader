@@ -24,6 +24,7 @@ describe("renderMarkdown", () => {
     });
 
     expect(markdown).toContain("---");
+    expect(markdown).toContain('title: "Example Title"');
     expect(markdown).toContain('url: "https://example.com/post"');
     expect(markdown).toContain('requestedUrl: "https://example.com/post?ref=test"');
     expect(markdown).toContain('author: "Alice"');

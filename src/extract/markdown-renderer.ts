@@ -43,6 +43,13 @@ function isDefinedValue(value: unknown): boolean {
 
 function renderFrontmatterValue(value: unknown): string {
   if (typeof value === "string") {
+    if (value.includes("\n")) {
+      return `|-\n${value
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n")}`;
+    }
     return JSON.stringify(value);
   }
   if (typeof value === "number" || typeof value === "boolean") {
@@ -54,6 +61,7 @@ function renderFrontmatterValue(value: unknown): string {
 function renderFrontmatter(document: ExtractedDocument): string {
   const fields = new Map<string, unknown>();
   const preferredOrder = [
+    "title",
     "url",
     "requestedUrl",
     "author",
@@ -67,6 +75,7 @@ function renderFrontmatter(document: ExtractedDocument): string {
     "adapter",
   ];
 
+  fields.set("title", document.title);
   fields.set("url", document.canonicalUrl ?? document.url);
   fields.set("requestedUrl", document.requestedUrl ?? document.url);
   fields.set("author", document.author);

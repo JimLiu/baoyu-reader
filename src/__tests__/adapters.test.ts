@@ -9,6 +9,13 @@ describe("adapter registry", () => {
     expect(adapter.name).toBe("x");
   });
 
+  test("matches hn adapter for item URLs", () => {
+    const adapter = resolveAdapter({
+      url: new URL("https://news.ycombinator.com/item?id=47534848"),
+    });
+    expect(adapter.name).toBe("hn");
+  });
+
   test("falls back to generic adapter", () => {
     const adapter = resolveAdapter({
       url: new URL("https://example.com/post"),
@@ -16,4 +23,3 @@ describe("adapter registry", () => {
     expect(adapter.name).toBe("generic");
   });
 });
-

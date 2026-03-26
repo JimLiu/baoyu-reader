@@ -1,9 +1,10 @@
 import type { Adapter, AdapterInput } from "./types";
 import { genericAdapter } from "./generic";
+import { hnAdapter } from "./hn";
 import { xAdapter } from "./x";
 import { youtubeAdapter } from "./youtube";
 
-const adapters: Adapter[] = [xAdapter, youtubeAdapter, genericAdapter];
+const adapters: Adapter[] = [xAdapter, youtubeAdapter, hnAdapter, genericAdapter];
 
 export function listAdapters(): Adapter[] {
   return adapters;
