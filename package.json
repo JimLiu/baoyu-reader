@@ -19,6 +19,7 @@
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "chrome-launcher": "^1.2.1",
+    "defuddle": "^0.14.0",
     "jsdom": "^26.0.0",
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
@@ -31,4 +32,3 @@
     "typescript": "^5.9.2"
   }
 }
-

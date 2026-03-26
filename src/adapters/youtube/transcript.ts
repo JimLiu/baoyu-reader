@@ -9,6 +9,7 @@ interface CaptionInfo {
   available: string[];
   title?: string;
   author?: string;
+  coverImage?: string;
 }
 
 function chunkSegments(
@@ -97,6 +98,10 @@ export async function extractYouTubeTranscriptDocument(
       const videoDetails = playerResponse?.videoDetails || {};
       const title = videoDetails.title || document.title.replace(/ - YouTube$/, "").trim();
       const author = videoDetails.author || document.querySelector('link[itemprop="name"]')?.getAttribute('content') || undefined;
+      const thumbnails = Array.isArray(videoDetails.thumbnail?.thumbnails)
+        ? videoDetails.thumbnail.thumbnails
+        : [];
+      const coverImage = thumbnails[thumbnails.length - 1]?.url;
       if (!apiKey) {
         return { error: "INNERTUBE_API_KEY not found on page" };
       }
@@ -131,6 +136,7 @@ export async function extractYouTubeTranscriptDocument(
         available: tracks.map((item) => item.languageCode + (item.kind === 'asr' ? ' (auto)' : '')),
         title,
         author,
+        coverImage,
       };
     })()
   `);
@@ -253,6 +259,7 @@ export async function extractYouTubeTranscriptDocument(
     metadata: {
       kind: "youtube/transcript",
       videoId,
+      coverImage: captionInfo.coverImage,
       language: captionInfo.language,
       captionKind: captionInfo.kind,
       availableLanguages: captionInfo.available,

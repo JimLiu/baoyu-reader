@@ -2,6 +2,7 @@ import type { BrowserSession } from "../browser/session";
 import type { CdpClient } from "../browser/cdp-client";
 import type { NetworkJournal } from "../browser/network-journal";
 import type { ExtractedDocument } from "../extract/document";
+import type { MediaDownloadRequest, MediaDownloadResult, MediaAsset } from "../media/types";
 import type { Logger } from "../utils/logger";
 
 export interface AdapterInput {
@@ -34,6 +35,7 @@ export type AdapterProcessResult =
   | {
       status: "ok";
       document: ExtractedDocument;
+      media?: MediaAsset[];
       login?: AdapterLoginInfo;
     }
   | {
@@ -54,11 +56,15 @@ export interface AdapterContext {
   log: Logger;
   timeoutMs: number;
   interactive: boolean;
+  downloadMedia: boolean;
 }
 
 export interface Adapter {
   name: string;
   match(input: AdapterInput): boolean;
   checkLogin?(context: AdapterContext): Promise<AdapterLoginInfo>;
+  downloadMedia?(request: MediaDownloadRequest): Promise<MediaDownloadResult>;
   process(context: AdapterContext): Promise<AdapterProcessResult>;
 }
+
+export type { MediaAsset };

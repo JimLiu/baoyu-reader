@@ -8,8 +8,9 @@
 - 监听网络请求与响应，按需拉取响应体
 - adapter registry，支持按 URL 自动命中站点处理器
 - 内置 `x` adapter，优先解析 GraphQL 返回
-- 通用 fallback：Readability + HTML to Markdown
+- 通用 fallback：Defuddle 优先，Readability + HTML to Markdown 回退
 - `stdout` 输出 Markdown，可选保存到文件
+- 可选下载 adapter 返回的图片/视频并重写 Markdown 链接
 - Chrome profile 默认对齐 `baoyu-skills/chrome-profile`
 
 ## 安装
@@ -23,6 +24,7 @@ bun install
 ```bash
 bun run src/cli.ts https://example.com
 baoyu-markdown https://example.com --output article.md
+baoyu-markdown https://example.com --output article.md --download-media
 baoyu-markdown https://x.com/jack/status/20 --json
 baoyu-markdown https://x.com/jack/status/20 --chrome-profile-dir ~/Library/Application\\ Support/baoyu-skills/chrome-profile
 ```
@@ -36,6 +38,8 @@ Options:
   --output <file>       保存 markdown 到文件
   --json                以 JSON 输出结构化结果
   --adapter <name>      强制使用指定 adapter（如 x / generic）
+  --download-media      下载 adapter 返回的媒体并重写 markdown 链接
+  --media-dir <dir>     指定媒体下载根目录；默认使用 markdown 文件所在目录
   --debug-dir <dir>     导出调试信息（html、document.json、network.json）
   --cdp-url <url>       连接现有 Chrome 调试地址
   --browser-path <path> 指定 Chrome 可执行文件

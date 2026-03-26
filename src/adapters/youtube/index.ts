@@ -1,4 +1,5 @@
 import type { Adapter } from "../types";
+import { collectMediaFromDocument } from "../../media/markdown-media";
 import { extractYouTubeTranscriptDocument } from "./transcript";
 import { isYouTubeHost, parseYouTubeVideoId } from "./utils";
 
@@ -26,6 +27,7 @@ export const youtubeAdapter: Adapter = {
     return {
       status: "ok",
       document,
+      media: collectMediaFromDocument(document),
     };
   },
 };

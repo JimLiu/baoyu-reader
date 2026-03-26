@@ -9,6 +9,8 @@ import { BrowserSession } from "../browser/session";
 import { genericAdapter, resolveAdapter } from "../adapters";
 import type { ExtractedDocument } from "../extract/document";
 import { renderMarkdown } from "../extract/markdown-renderer";
+import { downloadMediaAssets } from "../media/default-downloader";
+import { rewriteMarkdownMediaLinks } from "../media/markdown-media";
 import { createLogger } from "../utils/logger";
 import { normalizeUrl } from "../utils/url";
 import type {
@@ -16,6 +18,7 @@ import type {
   AdapterContext,
   AdapterLoginInfo,
   LoginState,
+  MediaAsset,
   WaitForInteractionRequest,
 } from "../adapters/types";
 
@@ -31,6 +34,8 @@ export interface ConvertCommandOptions {
   browserPath?: string;
   chromeProfileDir?: string;
   headless: boolean;
+  downloadMedia: boolean;
+  mediaDir?: string;
   waitMode: WaitMode;
   interactionTimeoutMs: number;
   interactionPollIntervalMs: number;
@@ -299,6 +304,9 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
   if (!options.url) {
     throw new Error("URL is required");
   }
+  if (options.downloadMedia && !options.output) {
+    throw new Error("--download-media requires --output so media paths can be rewritten relative to the markdown file");
+  }
 
   const url = normalizeUrl(options.url);
   let runtime = await openRuntime(options, options.waitMode !== "none", Boolean(options.debugDir));
@@ -314,6 +322,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
       log: logger,
       timeoutMs: options.timeoutMs,
       interactive: runtime.interactive,
+      downloadMedia: options.downloadMedia,
     };
 
     if (options.waitMode === "force") {
@@ -361,6 +370,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
         log: logger,
         timeoutMs: options.timeoutMs,
         interactive: runtime.interactive,
+        downloadMedia: options.downloadMedia,
       };
 
       await context.browser.goto(url.toString(), options.timeoutMs).catch(() => {});
@@ -380,13 +390,17 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
     }
 
     let document: ExtractedDocument | null = result.status === "ok" ? result.document : null;
+    let media: MediaAsset[] = result.status === "ok" ? (result.media ?? []) : [];
     let login = result.login;
+    let mediaAdapter = adapter;
 
     if (!document && adapter.name !== genericAdapter.name && result.status === "no_document") {
       logger.info(`Adapter ${adapter.name} returned no structured document; falling back to generic extraction`);
       const fallback = await genericAdapter.process(context);
       if (fallback.status === "ok") {
         document = fallback.document;
+        media = fallback.media ?? [];
+        mediaAdapter = genericAdapter;
       }
     }
 
@@ -396,7 +410,33 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
 
     document.requestedUrl ??= url.toString();
 
-    const markdown = renderMarkdown(document);
+    let markdown = renderMarkdown(document);
+    let downloadResult:
+      | Awaited<ReturnType<typeof downloadMediaAssets>>
+      | null = null;
+
+    if (options.downloadMedia && options.output) {
+      downloadResult = mediaAdapter.downloadMedia
+        ? await mediaAdapter.downloadMedia({
+            media,
+            outputPath: options.output,
+            mediaDir: options.mediaDir,
+            log: logger,
+          })
+        : await downloadMediaAssets({
+            media,
+            outputPath: options.output,
+            mediaDir: options.mediaDir,
+            log: logger,
+          });
+
+      markdown = rewriteMarkdownMediaLinks(markdown, downloadResult.replacements);
+      if (downloadResult.downloadedImages > 0 || downloadResult.downloadedVideos > 0) {
+        logger.info(
+          `Downloaded ${downloadResult.downloadedImages} images and ${downloadResult.downloadedVideos} videos`,
+        );
+      }
+    }
 
     if (options.output) {
       await writeOutput(options.output, markdown);
@@ -413,6 +453,8 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
         adapter: document.adapter ?? adapter.name,
         status: "ok",
         login,
+        media,
+        downloads: downloadResult,
         document,
         markdown,
       });

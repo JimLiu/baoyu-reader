@@ -34,4 +34,15 @@ describe("renderMarkdown", () => {
     expect(markdown).toContain("First paragraph.");
     expect(markdown).toContain("- One");
   });
+
+  test("avoids duplicating the title when body already starts with it", () => {
+    const markdown = renderMarkdown({
+      url: "https://example.com/post",
+      title: "Example Title",
+      content: [{ type: "markdown", markdown: "# Example Title\n\nBody text." }],
+    });
+
+    expect(markdown.match(/# Example Title/g)?.length).toBe(1);
+    expect(markdown).toContain("Body text.");
+  });
 });

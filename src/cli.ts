@@ -2,7 +2,7 @@
 
 import { runConvertCommand, type ConvertCommandOptions, type WaitMode } from "./commands/convert";
 
-const HELP_TEXT = `
+export const HELP_TEXT = `
 baoyu-markdown - Convert a URL into Markdown with Chrome CDP
 
 Usage:
@@ -12,6 +12,8 @@ Options:
   --output <file>       Save markdown to file
   --json                Print structured JSON instead of markdown
   --adapter <name>      Force an adapter (e.g. x, generic)
+  --download-media      Download adapter-reported media and rewrite markdown links
+  --media-dir <dir>     Base directory for downloaded media. Defaults to the markdown directory
   --debug-dir <dir>     Write debug artifacts
   --cdp-url <url>       Reuse an existing Chrome DevTools endpoint
   --browser-path <path> Explicit Chrome binary path
@@ -21,7 +23,8 @@ Options:
   --headless            Launch a temporary headless Chrome if needed
   --wait-for <mode>     Wait mode: interaction | force
                         interaction: start visible Chrome and auto-wait only when login or verification is required
-                        force: start visible Chrome and always wait for Enter before extraction
+                        force: start visible Chrome, then auto-continue after it detects login/challenge progress
+                               or continue immediately when you press Enter
   --wait-for-interaction
                         Alias for --wait-for interaction
   --wait-for-login      Alias for --wait-for interaction
@@ -34,6 +37,12 @@ Options:
                         Alias for --interaction-poll-interval
   --timeout <ms>        Page timeout in milliseconds (default: 30000)
   --help                Show help
+
+Examples:
+  baoyu-markdown https://example.com
+  baoyu-markdown https://example.com --output article.md --download-media
+  baoyu-markdown https://x.com/lennysan/status/2036483059407810640 --wait-for interaction
+  baoyu-markdown https://x.com/lennysan/status/2036483059407810640 --wait-for force
 `.trim();
 
 interface CliOptions extends ConvertCommandOptions {
@@ -56,6 +65,7 @@ export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     json: false,
     headless: false,
+    downloadMedia: false,
     waitMode: "none",
     interactionTimeoutMs: 600_000,
     interactionPollIntervalMs: 1_500,
@@ -73,6 +83,10 @@ export function parseArgs(argv: string[]): CliOptions {
     }
     if (value === "--json") {
       options.json = true;
+      continue;
+    }
+    if (value === "--download-media") {
+      options.downloadMedia = true;
       continue;
     }
     if (value === "--headless") {
@@ -104,6 +118,11 @@ export function parseArgs(argv: string[]): CliOptions {
     }
     if (value === "--debug-dir") {
       options.debugDir = args[index + 1];
+      index += 1;
+      continue;
+    }
+    if (value === "--media-dir") {
+      options.mediaDir = args[index + 1];
       index += 1;
       continue;
     }

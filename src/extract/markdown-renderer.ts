@@ -101,6 +101,39 @@ function cleanMarkdown(markdown: string): string {
   return markdown.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function normalizeComparableTitle(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^>\s*/, "")
+    .replace(/^#+\s+/, "")
+    .replace(/(?:\.{3}|…)\s*$/, "");
+}
+
+function bodyStartsWithTitle(body: string, title: string): boolean {
+  const firstMeaningfulLine = body
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !/^!?\[[^\]]*\]\([^)]+\)$/.test(line));
+
+  if (!firstMeaningfulLine) {
+    return false;
+  }
+
+  const comparableTitle = normalizeComparableTitle(title);
+  const comparableFirstLine = normalizeComparableTitle(firstMeaningfulLine);
+  if (!comparableTitle || !comparableFirstLine) {
+    return false;
+  }
+
+  return (
+    comparableFirstLine === comparableTitle ||
+    comparableFirstLine.startsWith(comparableTitle) ||
+    comparableTitle.startsWith(comparableFirstLine)
+  );
+}
+
 export function renderMarkdown(document: ExtractedDocument): string {
   const sections: string[] = [];
   const frontmatter = renderFrontmatter(document);
@@ -109,14 +142,14 @@ export function renderMarkdown(document: ExtractedDocument): string {
     sections.push(frontmatter);
   }
 
-  if (document.title) {
-    sections.push(`# ${document.title}`);
-  }
-
   const body = document.content
     .map((block) => renderBlock(block))
     .filter(Boolean)
     .join("\n\n");
+
+  if (document.title && !bodyStartsWithTitle(body, document.title)) {
+    sections.push(`# ${document.title}`);
+  }
 
   if (body) {
     sections.push(body);

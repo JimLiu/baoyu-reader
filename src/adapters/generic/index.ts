@@ -1,6 +1,7 @@
 import type { Adapter } from "../types";
 import { detectInteractionGate } from "../../browser/interaction-gates";
-import { extractDocumentFromHtml } from "../../extract/html-extractor";
+import { captureNormalizedPageSnapshot } from "../../browser/page-snapshot";
+import { convertHtmlToMarkdown } from "../../extract/html-to-markdown";
 
 export const genericAdapter: Adapter = {
   name: "generic",
@@ -31,11 +32,6 @@ export const genericAdapter: Adapter = {
       context.log.debug("Network idle timed out after scrolling; continuing.");
     }
 
-    const [html, finalUrl] = await Promise.all([
-      context.browser.getHTML(),
-      context.browser.getURL(),
-    ]);
-
     const interaction = await detectInteractionGate(context.browser);
     if (interaction) {
       return {
@@ -44,15 +40,34 @@ export const genericAdapter: Adapter = {
       };
     }
 
-    const document = extractDocumentFromHtml({
-      url: finalUrl,
-      html,
-      adapter: "generic",
+    const snapshot = await captureNormalizedPageSnapshot(context.browser);
+    const converted = await convertHtmlToMarkdown(snapshot.html, snapshot.finalUrl, {
+      preserveBase64Images: context.downloadMedia,
     });
+    const document = {
+      url: snapshot.finalUrl,
+      canonicalUrl: converted.metadata.canonicalUrl,
+      title: converted.metadata.title,
+      author: converted.metadata.author,
+      siteName: converted.metadata.siteName,
+      publishedAt: converted.metadata.publishedAt,
+      summary: converted.metadata.summary,
+      adapter: "generic",
+      metadata: {
+        coverImage: converted.metadata.coverImage,
+        language: converted.metadata.language,
+        capturedAt: converted.metadata.capturedAt,
+        conversionMethod: converted.conversionMethod,
+        fallbackReason: converted.fallbackReason,
+        kind: "generic/article",
+      },
+      content: converted.markdown ? [{ type: "markdown" as const, markdown: converted.markdown }] : [],
+    };
 
     return {
       status: "ok",
       document,
+      media: converted.media,
     };
   },
 };

@@ -1,6 +1,7 @@
 import type { Adapter, AdapterLoginInfo } from "../types";
 import { detectInteractionGate } from "../../browser/interaction-gates";
 import type { ExtractedDocument } from "../../extract/document";
+import { collectMediaFromDocument } from "../../media/markdown-media";
 import { extractArticleDocumentFromPayload } from "./article";
 import { buildNeedsLoginResult, detectXLogin } from "./login";
 import { extractStatusId, isXHost } from "./match";
@@ -103,6 +104,7 @@ export const xAdapter: Adapter = {
       return {
         status: "ok",
         document,
+        media: collectMediaFromDocument(document),
         login,
       };
     }
