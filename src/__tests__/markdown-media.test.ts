@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { collectMediaFromDocument, rewriteMarkdownMediaLinks } from "../media/markdown-media";
+import {
+  collectMediaFromDocument,
+  collectMediaFromMarkdown,
+  normalizeMarkdownMediaLinks,
+  rewriteMarkdownMediaLinks,
+} from "../media/markdown-media";
 
 describe("markdown media helpers", () => {
   test("collects cover, image markdown, and plain media urls from a document", () => {
@@ -56,5 +61,24 @@ Poster: https://cdn.example.com/poster.png
     expect(rewritten).toContain('coverImage: "imgs/img-001-cover.jpg"');
     expect(rewritten).toContain("![inline](imgs/img-002-body.webp)");
     expect(rewritten).toContain("Poster: imgs/img-003-poster.png");
+  });
+
+  test("normalizes and dedupes linked Substack CDN image variants", () => {
+    const resizedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const linkedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const canonicalUrl =
+      "https://substack-post-media.s3.amazonaws.com/public/images/b83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const markdown = `[![](${resizedUrl})](${linkedUrl})`;
+
+    expect(normalizeMarkdownMediaLinks(markdown)).toBe(`[![](${canonicalUrl})](${canonicalUrl})`);
+    expect(collectMediaFromMarkdown(markdown)).toEqual([
+      {
+        url: canonicalUrl,
+        kind: "image",
+        role: "inline",
+      },
+    ]);
   });
 });

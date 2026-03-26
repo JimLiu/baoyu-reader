@@ -1,5 +1,6 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { normalizeMarkdownMediaLinks } from "../media/markdown-media";
 import type { ContentBlock, ExtractedDocument } from "./document";
 
 const turndownService = new TurndownService({
@@ -98,7 +99,7 @@ function renderFrontmatter(document: ExtractedDocument): string {
 }
 
 function cleanMarkdown(markdown: string): string {
-  return markdown.replace(/\n{3,}/g, "\n\n").trim();
+  return normalizeMarkdownMediaLinks(markdown.replace(/\n{3,}/g, "\n\n").trim());
 }
 
 function normalizeComparableTitle(value: string): string {

@@ -45,4 +45,25 @@ describe("renderMarkdown", () => {
     expect(markdown.match(/# Example Title/g)?.length).toBe(1);
     expect(markdown).toContain("Body text.");
   });
+
+  test("normalizes Substack CDN image links in rendered markdown", () => {
+    const resizedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const linkedUrl =
+      "https://substackcdn.com/image/fetch/$s_!wORh!,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+    const canonicalUrl =
+      "https://substack-post-media.s3.amazonaws.com/public/images/b83f9d2f-711f-4edd-bc8a-303b8de422e5_1600x1300.png";
+
+    const markdown = renderMarkdown({
+      url: "https://example.com/post",
+      metadata: {
+        coverImage: resizedUrl,
+      },
+      content: [{ type: "markdown", markdown: `[![](${resizedUrl})](${linkedUrl})` }],
+    });
+
+    expect(markdown).toContain(`coverImage: "${canonicalUrl}"`);
+    expect(markdown).toContain(`[![](${canonicalUrl})](${canonicalUrl})`);
+    expect(markdown).not.toContain("substackcdn.com/image/fetch");
+  });
 });
