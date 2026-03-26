@@ -160,7 +160,7 @@ describe("x article extraction", () => {
                   title: "Article with media",
                   cover_media: {
                     media_info: {
-                      original_img_url: "https://pbs.twimg.com/media/cover.jpg",
+                      original_img_url: "https://pbs.twimg.com/media/cover?format=jpeg&name=small",
                     },
                   },
                   media_entities: [
@@ -244,7 +244,9 @@ describe("x article extraction", () => {
     );
 
     expect(document).not.toBeNull();
-    expect(document?.metadata?.coverImage).toBe("https://pbs.twimg.com/media/cover.jpg");
+    expect(document?.metadata?.coverImage).toBe(
+      "https://pbs.twimg.com/media/cover?format=jpg&name=4096x4096",
+    );
 
     const content = document?.content[0];
     expect(content?.type).toBe("markdown");
@@ -253,9 +255,11 @@ describe("x article extraction", () => {
     }
 
     expect(content.markdown).toContain("https://example.com/report");
-    expect(content.markdown).toContain("![](https://pbs.twimg.com/media/body.jpg)");
+    expect(content.markdown).toContain("![](https://pbs.twimg.com/media/body?format=jpg&name=4096x4096)");
     expect(content.markdown).toContain("> Embedded Author (@embedded_author)");
     expect(content.markdown).toContain("> Embedded tweet text");
-    expect(content.markdown).toContain("> ![](https://pbs.twimg.com/media/embedded.jpg)");
+    expect(content.markdown).toContain(
+      "> ![](https://pbs.twimg.com/media/embedded?format=jpg&name=4096x4096)",
+    );
   });
 });

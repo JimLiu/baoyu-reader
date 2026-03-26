@@ -1,5 +1,8 @@
+import path from "node:path";
 import type { NetworkEntry } from "../../browser/network-journal";
 import type { XMedia, XQuotedTweet, XTweet, XUser, JsonObject } from "./types";
+
+const X_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif"]);
 
 function emptyObject(): JsonObject {
   return {};
@@ -166,6 +169,44 @@ export function getTweetText(tweet: JsonObject): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function normalizeXImageExtension(raw: string | undefined | null): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const normalized = raw.replace(/^\./, "").trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized === "jpeg" ? "jpg" : normalized;
+}
+
+export function toHighResXImageUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.hostname.toLowerCase() !== "pbs.twimg.com") {
+      return rawUrl;
+    }
+
+    const pathExtension = normalizeXImageExtension(path.posix.extname(parsed.pathname));
+    const format = normalizeXImageExtension(parsed.searchParams.get("format")) ?? pathExtension;
+    if (!format || !X_IMAGE_EXTENSIONS.has(format)) {
+      return rawUrl;
+    }
+
+    if (pathExtension) {
+      parsed.pathname = parsed.pathname.replace(new RegExp(`\\.${pathExtension}$`, "i"), "");
+    }
+
+    parsed.searchParams.set("format", format);
+    parsed.searchParams.set("name", "4096x4096");
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 export function getTweetMedia(tweet: JsonObject): XMedia[] {
   const legacy = getLegacy(tweet);
   const extendedEntities = isRecord(legacy.extended_entities) ? legacy.extended_entities : emptyObject();
@@ -179,7 +220,7 @@ export function getTweetMedia(tweet: JsonObject): XMedia[] {
       if (value.type === "photo" && typeof value.media_url_https === "string") {
         return {
           type: value.type,
-          url: value.media_url_https,
+          url: toHighResXImageUrl(value.media_url_https),
           alt: typeof value.ext_alt_text === "string" ? value.ext_alt_text : undefined,
         };
       }

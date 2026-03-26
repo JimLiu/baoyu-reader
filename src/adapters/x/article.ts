@@ -1,6 +1,27 @@
 import type { ExtractedDocument } from "../../extract/document";
-import { findTweetNode, findTweetNodeById, formatMediaList, formatTweetAuthor, getTweetAuthorMetadata, getTweetText, getUser, isRecord, normalizeTitle, toXTweet } from "./shared";
+import {
+  findTweetNode,
+  findTweetNodeById,
+  formatMediaList,
+  formatTweetAuthor,
+  getTweetAuthorMetadata,
+  getTweetText,
+  getUser,
+  isRecord,
+  normalizeTitle,
+  toHighResXImageUrl,
+  toXTweet,
+} from "./shared";
 import type { JsonObject } from "./types";
+
+function resolveArticleMediaUrl(mediaInfo: JsonObject): string {
+  const rawUrl =
+    (typeof mediaInfo.original_img_url === "string" && mediaInfo.original_img_url) ||
+    (typeof mediaInfo.url === "string" && mediaInfo.url) ||
+    "";
+
+  return rawUrl ? toHighResXImageUrl(rawUrl) : "";
+}
 
 function normalizeEntityMap(entityMap: unknown): Map<string, JsonObject> {
   const normalized = new Map<string, JsonObject>();
@@ -116,10 +137,7 @@ function buildMediaUrlMap(articleResult: JsonObject): Map<string, string> {
     }
 
     const mediaInfo = entity.media_info;
-    const url =
-      (typeof mediaInfo.original_img_url === "string" && mediaInfo.original_img_url) ||
-      (typeof mediaInfo.url === "string" && mediaInfo.url) ||
-      "";
+    const url = resolveArticleMediaUrl(mediaInfo);
     if (url) {
       mediaMap.set(entity.media_id, url);
     }
@@ -127,10 +145,7 @@ function buildMediaUrlMap(articleResult: JsonObject): Map<string, string> {
 
   const coverMedia = isRecord(articleResult.cover_media) ? articleResult.cover_media : null;
   if (coverMedia && typeof coverMedia.media_id === "string" && isRecord(coverMedia.media_info)) {
-    const url =
-      (typeof coverMedia.media_info.original_img_url === "string" && coverMedia.media_info.original_img_url) ||
-      (typeof coverMedia.media_info.url === "string" && coverMedia.media_info.url) ||
-      "";
+    const url = resolveArticleMediaUrl(coverMedia.media_info);
     if (url) {
       mediaMap.set(coverMedia.media_id, url);
     }
@@ -381,10 +396,7 @@ export function extractArticleDocumentFromPayload(
   const user = getUser(tweet);
   const coverMedia = isRecord(articleResult.cover_media) ? articleResult.cover_media : null;
   const coverMediaInfo = coverMedia && isRecord(coverMedia.media_info) ? coverMedia.media_info : null;
-  const coverImage =
-    (coverMediaInfo && typeof coverMediaInfo.original_img_url === "string" && coverMediaInfo.original_img_url) ||
-    (coverMediaInfo && typeof coverMediaInfo.url === "string" && coverMediaInfo.url) ||
-    undefined;
+  const coverImage = coverMediaInfo ? resolveArticleMediaUrl(coverMediaInfo) || undefined : undefined;
 
   return {
     url: pageUrl,
