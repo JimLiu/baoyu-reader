@@ -1,41 +1,46 @@
 # baoyu-reader
 
-`baoyu-reader` 是一个基于 Chrome CDP 的 Bun CLI：输入 URL，输出 `markdown` 或 `json`；命中站点 adapter 时优先消费 API / 页面内数据，未命中时回退到通用 HTML 提取。
+English | [简体中文](./README.zh-CN.md) | [Changelog](./CHANGELOG.md) | [中文更新日志](./CHANGELOG.zh-CN.md)
 
-## 当前能力
+`baoyu-reader` is a Bun CLI built on Chrome CDP. Give it a URL and it returns
+high-quality `markdown` or `json`. When a site adapter matches, it prefers API
+responses or structured page data; otherwise it falls back to generic HTML
+extraction.
 
-- Chrome CDP 抓取渲染后的页面内容
-- 监听网络请求与响应，按需拉取响应体
-- adapter registry，支持按 URL 自动命中站点处理器
-- 内置 `x` adapter，优先解析 GraphQL 返回
-- 通用 fallback：Defuddle 优先，Readability + HTML to Markdown 回退
-- `stdout` 或 `--output` 输出 `markdown` / `json`
-- 可选下载 adapter 返回的图片/视频并重写 Markdown 链接
-- Chrome profile 默认对齐 `baoyu-skills/chrome-profile`
+## Features
 
-## 安装
+- Capture rendered page content through Chrome CDP
+- Observe network requests and responses, and fetch bodies when needed
+- Adapter registry that auto-selects a handler from the URL
+- Built-in adapters for `x`, `youtube`, and `hn`
+- Generic fallback: Defuddle first, then Readability + HTML-to-Markdown
+- Print `markdown` / `json` to stdout or save with `--output`
+- Optionally download extracted images or videos and rewrite Markdown links
+- Optional wait modes for login and verification flows
+- Chrome profile defaults to `baoyu-skills/chrome-profile`
+
+## Installation
 
 ```bash
 bun install
 ```
 
-发布到 npm 后，包里只包含 TypeScript 源码，不包含编译后的 `dist`。
-
-推荐直接用 Bun 运行：
+For package usage, the quickest option is:
 
 ```bash
 bunx baoyu-reader https://example.com
 ```
 
-也可以全局安装：
+You can also install it globally:
 
 ```bash
 npm install -g baoyu-reader
 ```
 
-注意：CLI 入口是 `src/cli.ts`，通过 `bun` 直接执行；运行机器需要有 Bun。
+The npm package ships TypeScript source entrypoints instead of a prebuilt
+`dist`, so Bun is required at runtime.
 
-## 用法
+## Usage
 
 ```bash
 bun run src/cli.ts https://example.com
@@ -45,45 +50,57 @@ baoyu-reader https://example.com --format markdown --output article.md
 baoyu-reader https://example.com --format markdown --output article.md --download-media
 baoyu-reader https://x.com/jack/status/20 --format json --output article.json
 baoyu-reader https://x.com/jack/status/20 --json
+baoyu-reader https://x.com/jack/status/20 --wait-for interaction
+baoyu-reader https://x.com/jack/status/20 --wait-for force
 baoyu-reader https://x.com/jack/status/20 --chrome-profile-dir ~/Library/Application\\ Support/baoyu-skills/chrome-profile
 ```
 
-## 主要参数
+## Options
 
 ```bash
 baoyu-reader <url> [options]
 
 Options:
-  --output <file>       保存输出内容到文件
-  --format <type>       输出格式：markdown | json
-  --json                `--format json` 的兼容别名
-  --adapter <name>      强制使用指定 adapter（如 x / generic）
-  --download-media      下载 adapter 返回的媒体并重写 markdown 链接
-  --media-dir <dir>     指定媒体下载根目录；默认使用输出文件所在目录
-  --debug-dir <dir>     导出调试信息（html、document.json、network.json）
-  --cdp-url <url>       连接现有 Chrome 调试地址
-  --browser-path <path> 指定 Chrome 可执行文件
+  --output <file>       Save output to file
+  --format <type>       Output format: markdown | json
+  --json                Alias for --format json
+  --adapter <name>      Force an adapter (for example x / hn / generic)
+  --download-media      Download adapter-reported media and rewrite markdown links
+  --media-dir <dir>     Base directory for downloaded media. Defaults to the output directory
+  --debug-dir <dir>     Write debug artifacts (html, document.json, network.json)
+  --cdp-url <url>       Reuse an existing Chrome DevTools endpoint
+  --browser-path <path> Explicit Chrome binary path
   --chrome-profile-dir <path>
-                        指定 Chrome profile 目录。默认使用 BAOYU_CHROME_PROFILE_DIR，
-                        否则回退到 baoyu-skills/chrome-profile
-  --headless            启动临时 headless Chrome（未连现有实例时）
-  --timeout <ms>        页面加载超时，默认 30000
-  --help                显示帮助
+                        Chrome user data dir. Defaults to BAOYU_CHROME_PROFILE_DIR
+                        or baoyu-skills/chrome-profile
+  --headless            Launch a temporary headless Chrome if needed
+  --wait-for <mode>     Wait mode: interaction | force
+  --wait-for-interaction
+                        Alias for --wait-for interaction
+  --wait-for-login      Alias for --wait-for interaction
+  --interaction-timeout <ms>
+                        Manual interaction timeout. Default: 600000
+  --interaction-poll-interval <ms>
+                        Poll interval while waiting. Default: 1500
+  --login-timeout <ms>  Alias for --interaction-timeout
+  --login-poll-interval <ms>
+                        Alias for --interaction-poll-interval
+  --timeout <ms>        Page load timeout. Default: 30000
+  --help                Show help
 ```
 
-## 设计
+## How It Works
 
-核心链路：
+1. The CLI parses the target URL and options.
+2. It opens or connects to a Chrome CDP session and creates a controlled tab.
+3. `NetworkJournal` records requests and responses.
+4. The adapter registry resolves a site-specific adapter when possible.
+5. The adapter returns a structured `ExtractedDocument`.
+6. If nothing matches, generic HTML extraction runs instead.
+7. The result is rendered as Markdown, or returned as JSON with both
+   `document` and `markdown`.
 
-1. CLI 解析 URL 和选项
-2. 建立 CDP 会话并创建受控 tab
-3. 启动 `NetworkJournal` 收集所有请求/响应
-4. 由 adapter registry 匹配站点 adapter
-5. adapter 返回结构化 `ExtractedDocument`
-6. 没命中则走通用 HTML 提取
-7. 按请求输出 Markdown，或输出包含 `document` 和 `markdown` 的 JSON
-
-## 开发
+## Development
 
 ```bash
 bun run check
@@ -91,14 +108,17 @@ bun run test
 bun run build
 ```
 
-## 发版
+## Release
 
-新增用户可见改动后，先添加一个 changeset：
+When you make a user-visible change, add a changeset first:
 
 ```bash
 bunx changeset
 ```
 
-把生成的 `.changeset/*.md` 一起合并到 `main` 后，GitHub Actions 会自动创建或更新 release PR；合并 release PR 之后，会自动发布到 npm。
+After the generated `.changeset/*.md` file lands on `main`, GitHub Actions will
+open or update the release PR. Merging that release PR publishes the package to
+npm.
 
-发布流程不会编译 `dist`，而是直接把 `src/*.ts` 发布到 npm。
+The publish flow does not build `dist`; it publishes `src/*.ts` for Bun
+execution directly.
