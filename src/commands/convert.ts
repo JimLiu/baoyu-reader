@@ -23,11 +23,12 @@ import type {
 } from "../adapters/types";
 
 export type WaitMode = "none" | "interaction" | "force";
+export type OutputFormat = "markdown" | "json";
 
 export interface ConvertCommandOptions {
   url?: string;
   output?: string;
-  json: boolean;
+  format: OutputFormat;
   adapter?: string;
   debugDir?: string;
   cdpUrl?: string;
@@ -54,6 +55,23 @@ interface ForceWaitSnapshot {
   url: string;
   hasGate: boolean;
   loginState: LoginState | "unavailable";
+}
+
+interface SuccessfulConvertOutput {
+  adapter: string;
+  status: "ok";
+  login?: AdapterLoginInfo;
+  media: MediaAsset[];
+  downloads: Awaited<ReturnType<typeof downloadMediaAssets>> | null;
+  document: ExtractedDocument;
+  markdown: string;
+}
+
+interface InteractionRequiredOutput {
+  adapter: string;
+  status: "needs_interaction";
+  login?: AdapterLoginInfo;
+  interaction: WaitForInteractionRequest;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -83,12 +101,12 @@ export function shouldAutoContinueForceWait(
   return false;
 }
 
-async function writeOutput(path: string, markdown: string): Promise<void> {
+async function writeOutput(path: string, content: string): Promise<void> {
   const directory = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   if (directory) {
     await mkdir(directory, { recursive: true });
   }
-  await writeFile(path, markdown, "utf8");
+  await writeFile(path, content, "utf8");
 }
 
 async function writeDebugArtifacts(
@@ -296,8 +314,26 @@ async function waitForInteraction(
   throw new Error(`Timed out waiting for ${interaction.provider} interaction${reason}`);
 }
 
-function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2));
+export function formatOutputContent(
+  format: OutputFormat,
+  payload: SuccessfulConvertOutput | InteractionRequiredOutput,
+): string {
+  if (format === "json") {
+    return JSON.stringify(payload, null, 2);
+  }
+
+  if (payload.status !== "ok") {
+    throw new Error("Markdown output is only available for successful extraction results");
+  }
+
+  return payload.markdown;
+}
+
+function printOutput(content: string): void {
+  process.stdout.write(content);
+  if (!content.endsWith("\n")) {
+    process.stdout.write("\n");
+  }
 }
 
 export async function runConvertCommand(options: ConvertCommandOptions): Promise<void> {
@@ -305,7 +341,7 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
     throw new Error("URL is required");
   }
   if (options.downloadMedia && !options.output) {
-    throw new Error("--download-media requires --output so media paths can be rewritten relative to the markdown file");
+    throw new Error("--download-media requires --output so media paths can be rewritten relative to the saved output file");
   }
 
   const url = normalizeUrl(options.url);
@@ -345,13 +381,15 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
 
     while (result.status === "needs_interaction") {
       if (options.waitMode === "none") {
-        if (options.json) {
-          printJson({
+        if (options.format === "json") {
+          printOutput(
+            formatOutputContent(options.format, {
             adapter: adapter.name,
             status: result.status,
             login: result.login,
             interaction: result.interaction,
-          });
+            }),
+          );
           return;
         }
 
@@ -439,8 +477,19 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
     }
 
     if (options.output) {
-      await writeOutput(options.output, markdown);
-      logger.info(`Saved markdown to ${options.output}`);
+      await writeOutput(
+        options.output,
+        formatOutputContent(options.format, {
+          adapter: document.adapter ?? adapter.name,
+          status: "ok",
+          login,
+          media,
+          downloads: downloadResult,
+          document,
+          markdown,
+        }),
+      );
+      logger.info(`Saved ${options.format} to ${options.output}`);
     }
 
     if (options.debugDir) {
@@ -448,8 +497,9 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
       logger.info(`Wrote debug artifacts to ${options.debugDir}`);
     }
 
-    if (options.json) {
-      printJson({
+    if (options.format === "json") {
+      printOutput(
+        formatOutputContent(options.format, {
         adapter: document.adapter ?? adapter.name,
         status: "ok",
         login,
@@ -457,11 +507,12 @@ export async function runConvertCommand(options: ConvertCommandOptions): Promise
         downloads: downloadResult,
         document,
         markdown,
-      });
+        }),
+      );
       return;
     }
 
-    console.log(markdown);
+    printOutput(markdown);
   } finally {
     await closeRuntime(runtime);
   }

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveChromeProfileDir } from "../browser/profile";
+import { ensureChromeProfileDir, resolveChromeProfileDir } from "../browser/profile";
 
 const originalProfile = process.env.BAOYU_CHROME_PROFILE_DIR;
 
@@ -32,3 +33,17 @@ describe("resolveChromeProfileDir", () => {
   });
 });
 
+describe("ensureChromeProfileDir", () => {
+  test("creates the profile directory when missing", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "baoyu-reader-profile-"));
+    const profileDir = path.join(tempRoot, "nested", "chrome-profile");
+
+    try {
+      expect(fs.existsSync(profileDir)).toBe(false);
+      expect(ensureChromeProfileDir(profileDir)).toBe(profileDir);
+      expect(fs.statSync(profileDir).isDirectory()).toBe(true);
+    } finally {
+      fs.rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+});

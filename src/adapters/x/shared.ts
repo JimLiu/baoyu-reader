@@ -155,19 +155,19 @@ interface TweetUrlEntity {
 }
 
 function collectTweetUrlEntities(values: unknown[]): TweetUrlEntity[] {
-  return values
-    .map((value) => {
+  return values.reduce<TweetUrlEntity[]>((entities, value) => {
       if (!isRecord(value) || typeof value.url !== "string" || !value.url) {
-        return null;
+        return entities;
       }
 
-      return {
+      entities.push({
         url: value.url,
         expandedUrl: typeof value.expanded_url === "string" ? value.expanded_url : undefined,
         displayUrl: typeof value.display_url === "string" ? value.display_url : undefined,
-      };
-    })
-    .filter((value): value is TweetUrlEntity => value !== null);
+      });
+
+      return entities;
+    }, []);
 }
 
 function getTweetUrlEntities(tweet: JsonObject): TweetUrlEntity[] {

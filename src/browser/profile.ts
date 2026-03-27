@@ -56,6 +56,11 @@ export function resolveChromeProfileDir(profileDir?: string): string {
   });
 }
 
+export function ensureChromeProfileDir(profileDir: string): string {
+  fs.mkdirSync(profileDir, { recursive: true });
+  return profileDir;
+}
+
 async function fetchWithTimeout(url: string, timeoutMs = 3_000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -141,4 +146,3 @@ export async function findExistingChromeDebugPort(
 
   return null;
 }
-

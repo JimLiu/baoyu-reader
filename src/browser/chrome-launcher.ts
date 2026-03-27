@@ -1,6 +1,6 @@
 import { launch, type LaunchedChrome } from "chrome-launcher";
 import type { Logger } from "../utils/logger";
-import { findExistingChromeDebugPort, resolveChromeProfileDir } from "./profile";
+import { ensureChromeProfileDir, findExistingChromeDebugPort, resolveChromeProfileDir } from "./profile";
 
 interface ChromeVersionResponse {
   webSocketDebuggerUrl: string;
@@ -77,7 +77,7 @@ export async function connectChrome(options: ChromeConnectOptions): Promise<Chro
     return connectToHttpEndpoint(options.cdpUrl);
   }
 
-  const profileDir = resolveChromeProfileDir(options.profileDir);
+  const profileDir = ensureChromeProfileDir(resolveChromeProfileDir(options.profileDir));
   const reused = await tryReuseChrome(profileDir, options.logger);
   if (reused) {
     return reused;

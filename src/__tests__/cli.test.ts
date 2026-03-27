@@ -2,6 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { HELP_TEXT, parseArgs } from "../cli";
 
 describe("parseArgs", () => {
+  test("defaults to markdown output", () => {
+    const options = parseArgs(["bun", "src/cli.ts", "https://example.com"]);
+    expect(options.format).toBe("markdown");
+  });
+
+  test("parses explicit json output format", () => {
+    const options = parseArgs(["bun", "src/cli.ts", "https://example.com", "--format", "json"]);
+    expect(options.format).toBe("json");
+  });
+
+  test("maps --json to json output format", () => {
+    const options = parseArgs(["bun", "src/cli.ts", "https://example.com", "--json"]);
+    expect(options.format).toBe("json");
+  });
+
   test("parses --wait-for interaction", () => {
     const options = parseArgs(["bun", "src/cli.ts", "https://example.com", "--wait-for", "interaction"]);
     expect(options.waitMode).toBe("interaction");
@@ -37,7 +52,15 @@ describe("parseArgs", () => {
     ).toThrow("Invalid wait mode");
   });
 
+  test("rejects invalid output formats", () => {
+    expect(() =>
+      parseArgs(["bun", "src/cli.ts", "https://example.com", "--format", "xml"]),
+    ).toThrow("Invalid output format");
+  });
+
   test("documents wait modes in help text", () => {
+    expect(HELP_TEXT).toContain("baoyu-reader");
+    expect(HELP_TEXT).toContain("--format <type>");
     expect(HELP_TEXT).toContain("--wait-for <mode>");
     expect(HELP_TEXT).toContain("--download-media");
     expect(HELP_TEXT).toContain("force: start visible Chrome, then auto-continue");

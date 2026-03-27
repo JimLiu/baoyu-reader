@@ -1,19 +1,25 @@
 #!/usr/bin/env bun
 
-import { runConvertCommand, type ConvertCommandOptions, type WaitMode } from "./commands/convert";
+import {
+  runConvertCommand,
+  type ConvertCommandOptions,
+  type OutputFormat,
+  type WaitMode,
+} from "./commands/convert";
 
 export const HELP_TEXT = `
-baoyu-markdown - Convert a URL into Markdown with Chrome CDP
+baoyu-reader - Read a URL into Markdown or JSON with Chrome CDP
 
 Usage:
-  baoyu-markdown <url> [options]
+  baoyu-reader <url> [options]
 
 Options:
-  --output <file>       Save markdown to file
-  --json                Print structured JSON instead of markdown
+  --output <file>       Save output to file
+  --format <type>       Output format: markdown | json
+  --json                Alias for --format json
   --adapter <name>      Force an adapter (e.g. x, generic)
   --download-media      Download adapter-reported media and rewrite markdown links
-  --media-dir <dir>     Base directory for downloaded media. Defaults to the markdown directory
+  --media-dir <dir>     Base directory for downloaded media. Defaults to the output directory
   --debug-dir <dir>     Write debug artifacts
   --cdp-url <url>       Reuse an existing Chrome DevTools endpoint
   --browser-path <path> Explicit Chrome binary path
@@ -39,10 +45,11 @@ Options:
   --help                Show help
 
 Examples:
-  baoyu-markdown https://example.com
-  baoyu-markdown https://example.com --output article.md --download-media
-  baoyu-markdown https://x.com/lennysan/status/2036483059407810640 --wait-for interaction
-  baoyu-markdown https://x.com/lennysan/status/2036483059407810640 --wait-for force
+  baoyu-reader https://example.com
+  baoyu-reader https://example.com --format markdown --output article.md --download-media
+  baoyu-reader https://example.com --format json --output article.json
+  baoyu-reader https://x.com/lennysan/status/2036483059407810640 --wait-for interaction
+  baoyu-reader https://x.com/lennysan/status/2036483059407810640 --wait-for force
 `.trim();
 
 interface CliOptions extends ConvertCommandOptions {
@@ -61,9 +68,18 @@ function normalizeWaitMode(raw: string): WaitMode {
   throw new Error(`Invalid wait mode: ${raw}. Expected interaction or force.`);
 }
 
+function normalizeOutputFormat(raw: string): OutputFormat {
+  const value = raw.toLowerCase();
+  if (value === "markdown" || value === "json") {
+    return value;
+  }
+
+  throw new Error(`Invalid output format: ${raw}. Expected markdown or json.`);
+}
+
 export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
-    json: false,
+    format: "markdown",
     headless: false,
     downloadMedia: false,
     waitMode: "none",
@@ -81,8 +97,17 @@ export function parseArgs(argv: string[]): CliOptions {
       options.help = true;
       continue;
     }
+    if (value === "--format") {
+      const format = args[index + 1];
+      if (!format) {
+        throw new Error("--format requires a value");
+      }
+      options.format = normalizeOutputFormat(format);
+      index += 1;
+      continue;
+    }
     if (value === "--json") {
-      options.json = true;
+      options.format = "json";
       continue;
     }
     if (value === "--download-media") {
