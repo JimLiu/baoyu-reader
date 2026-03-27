@@ -1,6 +1,6 @@
 # baoyu-reader
 
-[English](./README.md) | 简体中文 | [更新日志](./CHANGELOG.md)
+[English](./README.md) | 简体中文 | [更新日志](./CHANGELOG.zh-CN.md) | [English Changelog](./CHANGELOG.md)
 
 `baoyu-reader` 是一个基于 Chrome CDP 的 Bun CLI。输入 URL，它会输出高质量
 `markdown` 或 `json`；命中站点 adapter 时优先消费 API 返回或页面内结构化

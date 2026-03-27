@@ -8,6 +8,7 @@
   },
   "files": [
     "CHANGELOG.md",
+    "CHANGELOG.zh-CN.md",
     "README.zh-CN.md",
     "src/adapters",
     "src/browser",
